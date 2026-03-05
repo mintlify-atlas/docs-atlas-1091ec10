@@ -1,0 +1,344 @@
+---
+title: run_discovery
+description: Run a discovery process and return the best result
+---
+
+## Function Signature
+
+```python
+def run_discovery(
+    evaluator: Union[str, Path, Callable],
+    initial_program: Optional[Union[str, Path, List[str]]] = None,
+    model: Optional[str] = None,
+    iterations: Optional[int] = None,
+    search: Optional[str] = None,
+    config: Union[str, Path, Config, None] = None,
+    agentic: bool = False,
+    output_dir: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    api_base: Optional[str] = None,
+    cleanup: bool = True,
+) -> DiscoveryResult
+```
+
+## Description
+
+The main entry point for running a discovery process. This function accepts file paths or inline strings for the initial program and evaluator, wires up configuration, and returns a `DiscoveryResult` containing the best solution found.
+
+## Parameters
+
+<ParamField path="evaluator" type="Union[str, Path, Callable]" required>
+  File path or callable function `(program_path) -> metrics_dict` that evaluates program performance.
+  
+  - **File path**: Path to a Python script that defines an `evaluate()` function
+  - **Callable**: Python function that accepts a program path and returns a metrics dictionary
+</ParamField>
+
+<ParamField path="initial_program" type="Optional[Union[str, Path, List[str]]]">
+  Starting solution for the discovery process. Can be:
+  
+  - **File path**: Path to a file containing the initial program
+  - **Inline string**: Source code as a string
+  - **List of strings**: Source code split into lines
+  - **None**: LLM generates a solution from scratch
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="model" type="Optional[str]">
+  Model name(s), comma-separated. Overrides config file settings.
+  
+  Examples:
+  - `"gpt-5"`
+  - `"gpt-5,gemini/gemini-3-pro"`
+  
+  Default: `None` (uses config file)
+</ParamField>
+
+<ParamField path="iterations" type="Optional[int]">
+  Maximum number of iterations to run. Overrides `config.max_iterations`.
+  
+  Default: `None` (uses config file)
+</ParamField>
+
+<ParamField path="search" type="Optional[str]">
+  Search algorithm name. Overrides config file settings.
+  
+  Options:
+  - `"topk"` - Top-K sampling
+  - `"adaevolve"` - Adaptive Evolution
+  - `"evox"` - EvoX backend
+  - `"openevolve_native"` - OpenEvolve native
+  
+  Default: `None` (uses config file)
+</ParamField>
+
+<ParamField path="config" type="Union[str, Path, Config, None]">
+  Configuration for the discovery process.
+  
+  - **YAML path**: Path to a YAML configuration file
+  - **Config object**: Pre-built `Config` instance
+  - **None**: Use default configuration
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="agentic" type="bool">
+  Enable agentic mode. The codebase root is automatically derived from `initial_program`.
+  
+  Default: `False`
+</ParamField>
+
+<ParamField path="output_dir" type="Optional[str]">
+  Directory where results, logs, and checkpoints are written. If `None`, a temporary directory is created.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="system_prompt" type="Optional[str]">
+  Domain-specific context provided to the LLM for better solution generation.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="api_base" type="Optional[str]">
+  Base URL for an OpenAI-compatible API endpoint.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="cleanup" type="bool">
+  Remove temporary files after the run completes.
+  
+  Default: `True`
+</ParamField>
+
+## Returns
+
+<ResponseField name="DiscoveryResult" type="DiscoveryResult">
+  Result object containing:
+  
+  <Expandable title="DiscoveryResult fields">
+    <ResponseField name="best_program" type="Optional[Program]">
+      The best program found during discovery
+    </ResponseField>
+    
+    <ResponseField name="best_score" type="float">
+      Score of the best program
+    </ResponseField>
+    
+    <ResponseField name="best_solution" type="str">
+      Source code of the best solution
+    </ResponseField>
+    
+    <ResponseField name="metrics" type="Dict[str, Any]">
+      Detailed metrics from the evaluator
+    </ResponseField>
+    
+    <ResponseField name="output_dir" type="Optional[str]">
+      Directory containing results (None if cleanup=True)
+    </ResponseField>
+    
+    <ResponseField name="initial_score" type="Optional[float]">
+      Score of the initial program (if provided)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Usage with File Paths
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="examples/my_problem/eval.py",
+    initial_program="examples/my_problem/init.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+print(f"Best score: {result.best_score}")
+print(f"Best solution:\n{result.best_solution}")
+```
+
+### Using a Callable Evaluator
+
+```python
+from skydiscover import run_discovery
+
+def my_evaluator(program_path: str) -> dict:
+    """Custom evaluator function."""
+    import subprocess
+    import json
+    
+    # Run the program
+    output = subprocess.run(
+        ["python", program_path],
+        capture_output=True,
+        text=True,
+        timeout=10
+    )
+    
+    # Parse results
+    metrics = json.loads(output.stdout)
+    return metrics
+
+result = run_discovery(
+    evaluator=my_evaluator,
+    model="gpt-5",
+    iterations=100,
+)
+```
+
+### Inline String Program
+
+```python
+from skydiscover import run_discovery
+
+initial_code = '''
+def solve(n: int) -> int:
+    """Initial solution."""
+    return n * 2
+'''
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program=initial_code,
+    model="gpt-5",
+    iterations=50,
+)
+```
+
+### Starting from Scratch (No Initial Program)
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program=None,  # LLM generates from scratch
+    model="gpt-5",
+    iterations=100,
+    system_prompt="Create a sorting algorithm optimized for small arrays",
+)
+```
+
+### Using Custom Configuration
+
+```python
+from skydiscover import run_discovery
+from skydiscover.config import Config
+
+# Load and customize config
+config = Config.from_yaml("config.yaml")
+config.max_iterations = 200
+config.llm.temperature = 0.8
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    config=config,
+    output_dir="./results",
+    cleanup=False,  # Keep results
+)
+
+print(f"Results saved to: {result.output_dir}")
+```
+
+### Multiple Models
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5,gemini/gemini-3-pro,claude-4-sonnet",
+    iterations=50,
+)
+```
+
+### Agentic Mode
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="examples/app/eval.py",
+    initial_program="examples/app/main.py",
+    model="gpt-5",
+    iterations=50,
+    agentic=True,  # Enables codebase awareness
+)
+```
+
+## Error Handling
+
+### Missing Model Configuration
+
+```python
+from skydiscover import run_discovery
+
+try:
+    result = run_discovery(
+        evaluator="eval.py",
+        # No model specified and no config file
+    )
+except ValueError as e:
+    print(f"Error: {e}")
+    # Error: No LLM models configured. Provide a config with models or
+    # pass model= directly:
+    #
+    #   result = run_discovery(evaluator, model='gpt-5')
+```
+
+### Missing External Package
+
+```python
+from skydiscover import run_discovery
+
+try:
+    result = run_discovery(
+        evaluator="eval.py",
+        model="gpt-5",
+        search="openevolve_native",
+    )
+except ImportError as e:
+    print(f"Error: {e}")
+    # Error: Search type 'openevolve_native' requires the 'openevolve' package.
+    # Install with: pip install openevolve
+```
+
+### Invalid Evaluator
+
+```python
+from skydiscover import run_discovery
+
+try:
+    result = run_discovery(
+        evaluator="nonexistent.py",
+        model="gpt-5",
+    )
+except FileNotFoundError as e:
+    print(f"Error: {e}")
+    # Error: Evaluator file not found: nonexistent.py
+```
+
+## Notes
+
+- The function runs asynchronously internally but presents a synchronous interface
+- Results are automatically checkpointed during the run
+- Use `cleanup=False` to preserve temporary files and intermediate results
+- The `output_dir` will contain:
+  - `best/` - Best program found
+  - `checkpoints/` - Periodic checkpoints
+  - `logs/` - Execution logs
+- Initial program is optional; the LLM can generate solutions from scratch with a good `system_prompt`
+
+## See Also
+
+- [discover_solution](/api/discover-solution) - Convenience wrapper for string solutions
+- [Runner](/api/runner) - Lower-level discovery runner class
+- [DiscoveryResult](/api/discovery-result) - Result object details

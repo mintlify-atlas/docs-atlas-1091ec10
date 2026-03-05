@@ -1,0 +1,500 @@
+---
+title: Installation
+description: Install SkyDiscover and configure your development environment
+---
+
+## System Requirements
+
+### Required
+
+- **Python**: 3.10, 3.11, 3.12, or 3.13
+- **Operating System**: Linux, macOS, or Windows (with WSL)
+- **Memory**: 4GB RAM minimum (8GB+ recommended for large benchmarks)
+- **Disk Space**: 2GB for base installation, additional space for benchmark data
+
+### Recommended
+
+- **uv**: Fast Python package installer ([installation guide](https://docs.astral.sh/uv/))
+- **Git**: For cloning the repository and managing checkpoints
+- **API Access**: OpenAI, Google Gemini, Anthropic, or local LLM endpoint
+
+## Installation Methods
+
+### Method 1: Using uv (Recommended)
+
+The fastest way to get started:
+
+<Steps>
+  <Step title="Install uv">
+    If you don't have uv installed:
+    
+    ```bash
+    # macOS/Linux
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    
+    # Windows (PowerShell)
+    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+    ```
+  </Step>
+  
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/sky-discover/skydiscover.git
+    cd skydiscover
+    ```
+  </Step>
+  
+  <Step title="Install SkyDiscover">
+    ```bash
+    uv sync
+    ```
+    
+    This installs the base package with core dependencies:
+    - `openai>=1.0.0`
+    - `pyyaml>=6.0`
+    - `tqdm>=4.64.0`
+    - `numpy>=1.22.0`
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    uv run skydiscover-run --help
+    ```
+    
+    You should see the CLI help message.
+  </Step>
+</Steps>
+
+### Method 2: Using pip
+
+Alternative installation with pip:
+
+```bash
+# Clone the repository
+git clone https://github.com/sky-discover/skydiscover.git
+cd skydiscover
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install
+pip install -e .
+```
+
+## Installing Extras
+
+SkyDiscover uses optional dependency groups for different benchmarks and features:
+
+### Math Benchmarks
+
+For circle packing, Erdos problems, and geometric optimization:
+
+```bash
+uv sync --extra math
+```
+
+Installs: `scipy`, `sympy`, `jax`, `optax`, `torch`, `scikit-learn`, `numba`, `pandas`, `matplotlib`, `plotly`, `networkx`, `cvxpy`, `autograd`, `pymoo`, `PyWavelets`
+
+### ADRS Systems Benchmarks
+
+For cloud scheduling and load balancing problems:
+
+```bash
+uv sync --extra adrs
+```
+
+Installs: `numpy`, `pandas`, `networkx>=3.2,<3.4`, `torch`
+
+### External Algorithm Backends
+
+For OpenEvolve, GEPA, and ShinkaEvolve:
+
+```bash
+uv sync --extra external
+```
+
+Installs: `openevolve`, `gepa[full]`, `litellm>=1.81`
+
+<Note>
+ShinkaEvolve requires manual installation (see below).
+</Note>
+
+### Frontier-CS Benchmark
+
+For competitive programming challenges:
+
+```bash
+uv sync --extra frontier-cs
+```
+
+Installs: `anthropic`, `colorlog`, `datasets`, `google-genai`, `google-generativeai`, `numpy>=2.0.0`, `python-dotenv`, `skypilot`
+
+<Warning>
+Frontier-CS requires numpy 2.x, which may conflict with other benchmarks using numpy 1.x. Use separate virtual environments if needed.
+</Warning>
+
+### Prompt Optimization
+
+For HotPotQA prompt evolution:
+
+```bash
+uv sync --extra prompt-optimization
+```
+
+Installs: `dspy>=3.1.3`, `litellm`, `bm25s`, `pystemmer`, `datasets`, `diskcache`, `ujson`
+
+### Development Tools
+
+For contributors and developers:
+
+```bash
+uv sync --extra dev
+```
+
+Installs: `pytest`, `pytest-asyncio`, `black`, `isort`, `mypy`, `requests`
+
+### Combining Extras
+
+Install multiple extras at once:
+
+```bash
+# Install math and external backends
+uv sync --extra math --extra external
+
+# Install everything for development
+uv sync --extra dev --extra math --extra adrs --extra external
+```
+
+## Manual Installation: ShinkaEvolve
+
+ShinkaEvolve is not available on PyPI and requires manual installation:
+
+```bash
+# Clone ShinkaEvolve repository
+git clone --depth 1 https://github.com/SakanaAI/ShinkaEvolve.git external_repos/ShinkaEvolve
+
+# Install in your environment
+uv pip install -e external_repos/ShinkaEvolve
+```
+
+Then use with:
+
+```bash
+uv run skydiscover-run initial_program.py evaluator.py \
+  --search shinkaevolve \
+  --iterations 100
+```
+
+## Environment Variables
+
+### LLM API Keys
+
+SkyDiscover automatically reads API keys from environment variables:
+
+<CodeGroup>
+```bash OpenAI
+export OPENAI_API_KEY="sk-your-key-here"
+```
+
+```bash Google Gemini
+export GEMINI_API_KEY="your-gemini-key-here"
+# Or
+export GOOGLE_API_KEY="your-google-key-here"
+```
+
+```bash Anthropic Claude
+export ANTHROPIC_API_KEY="sk-ant-your-key-here"
+```
+
+```bash Multiple Providers
+# You can set multiple keys for different models
+export OPENAI_API_KEY="sk-..."
+export GEMINI_API_KEY="..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+</CodeGroup>
+
+### Custom API Endpoints
+
+For local or self-hosted LLMs:
+
+```bash
+# Using command-line flag
+uv run skydiscover-run initial_program.py evaluator.py \
+  --model ollama/llama3 \
+  --api-base http://localhost:11434/v1 \
+  --search adaevolve
+
+# Or in config YAML
+```
+
+```yaml config.yaml
+llm:
+  api_base: http://localhost:11434/v1
+  models:
+    - name: ollama/llama3
+      weight: 1.0
+```
+
+### Other Environment Variables
+
+```bash
+# Set logging level (DEBUG, INFO, WARNING, ERROR)
+export SKYDISCOVER_LOG_LEVEL=INFO
+
+# Default output directory
+export SKYDISCOVER_OUTPUT_DIR=./my_outputs
+```
+
+## Verify Installation
+
+### Check Version
+
+```bash
+python -c "import skydiscover; print(skydiscover.__version__)"
+```
+
+### Run Basic Test
+
+Test your installation with a minimal example:
+
+```python test_install.py
+from skydiscover import discover_solution
+
+def simple_evaluator(program_path):
+    """Dummy evaluator for testing."""
+    return {"combined_score": 1.0}
+
+result = discover_solution(
+    evaluator=simple_evaluator,
+    initial_solution="def solve(x): return x",
+    iterations=1,
+    model="gpt-5",
+)
+
+print(f"Installation verified! Score: {result.best_score}")
+```
+
+```bash
+python test_install.py
+```
+
+## Model Configuration
+
+### Single Model
+
+Use a single model for all generations:
+
+```bash
+uv run skydiscover-run initial_program.py evaluator.py \
+  --model gpt-5 \
+  --search adaevolve
+```
+
+### Multiple Models with Weighted Sampling
+
+Combine multiple models in a config file:
+
+```yaml config.yaml
+llm:
+  models:
+    - name: gpt-5
+      weight: 0.7
+    - name: gemini/gemini-2.0-flash
+      weight: 0.3
+```
+
+SkyDiscover will randomly select models based on their weights for each generation.
+
+### Supported Model Providers
+
+SkyDiscover supports any LiteLLM-compatible model:
+
+<CodeGroup>
+```bash OpenAI
+--model gpt-5
+--model gpt-4o
+--model gpt-5-mini
+```
+
+```bash Google Gemini
+--model gemini/gemini-3-pro-preview
+--model gemini/gemini-2.0-flash
+--model gemini/gemini-2.0-pro
+```
+
+```bash Anthropic Claude
+--model anthropic/claude-sonnet-4-20250514
+--model anthropic/claude-opus-4-20250514
+```
+
+```bash Local/Self-hosted
+--model ollama/llama3 --api-base http://localhost:11434/v1
+--model vllm/llama-3-70b --api-base http://localhost:8000/v1
+```
+</CodeGroup>
+
+## Troubleshooting
+
+### Import Errors
+
+<Accordion title="ModuleNotFoundError: No module named 'scipy'">
+You're trying to run a math benchmark without the math extras:
+
+```bash
+uv sync --extra math
+```
+</Accordion>
+
+<Accordion title="ModuleNotFoundError: No module named 'openevolve'">
+You're trying to use an external backend without installing it:
+
+```bash
+uv sync --extra external
+```
+</Accordion>
+
+<Accordion title="ImportError: numpy version conflict">
+Frontier-CS requires numpy 2.x, which may conflict with other benchmarks:
+
+```bash
+# Option 1: Create separate environment for Frontier-CS
+python -m venv venv-frontier-cs
+source venv-frontier-cs/bin/activate
+uv sync --extra frontier-cs
+
+# Option 2: Override numpy version in pyproject.toml
+```
+</Accordion>
+
+### API Key Issues
+
+<Accordion title="openai.error.AuthenticationError: Invalid API key">
+Ensure your API key is set correctly:
+
+```bash
+# Check if key is set
+echo $OPENAI_API_KEY
+
+# Set it if missing
+export OPENAI_API_KEY="sk-your-key-here"
+
+# Make it persistent (add to ~/.bashrc or ~/.zshrc)
+echo 'export OPENAI_API_KEY="sk-your-key-here"' >> ~/.bashrc
+```
+</Accordion>
+
+<Accordion title="Rate limit exceeded">
+OpenAI and other providers have rate limits. To handle this:
+
+1. **Reduce concurrency** in your config:
+
+```yaml config.yaml
+llm:
+  max_parallel_requests: 2  # Reduce from default
+```
+
+2. **Add retry logic** (built-in by default)
+
+3. **Use multiple models** to distribute load:
+
+```yaml config.yaml
+llm:
+  models:
+    - name: gpt-5
+      weight: 0.5
+    - name: gemini/gemini-2.0-flash
+      weight: 0.5
+```
+</Accordion>
+
+### Performance Issues
+
+<Accordion title="Discovery is very slow">
+1. **Use faster models**:
+   - Replace `gpt-5` with `gpt-5-mini` or `gemini/gemini-2.0-flash`
+   
+2. **Reduce timeout**:
+   ```yaml
+   evaluator:
+     timeout: 60  # Reduce from default 360
+   ```
+
+3. **Enable cascade evaluation** (evaluates cheap checks first):
+   ```yaml
+   evaluator:
+     cascade_evaluation: true
+     cascade_thresholds: [0.3, 0.6]
+   ```
+</Accordion>
+
+<Accordion title="Out of memory errors">
+1. **Reduce batch size** or max solution length:
+   ```yaml
+   max_solution_length: 30000  # Reduce from default 60000
+   ```
+
+2. **Disable checkpointing** (saves disk I/O):
+   ```yaml
+   checkpoint_interval: null  # Disable checkpoints
+   ```
+
+3. **Use a smaller database**:
+   ```yaml
+   database:
+     max_programs: 1000  # Limit stored programs
+   ```
+</Accordion>
+
+### Platform-Specific Issues
+
+<Accordion title="Windows: 'uv' is not recognized">
+Ensure uv is in your PATH:
+
+```powershell
+# Reinstall uv
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or add to PATH manually
+$env:Path += ";$env:USERPROFILE\.cargo\bin"
+```
+</Accordion>
+
+<Accordion title="macOS: SSL certificate errors">
+Install certificates:
+
+```bash
+# For Python installed via Homebrew
+/usr/local/bin/python3 -m pip install --upgrade certifi
+
+# For system Python
+sudo /Applications/Python\ 3.10/Install\ Certificates.command
+```
+</Accordion>
+
+<Accordion title="Linux: Permission denied errors">
+Ensure scripts are executable:
+
+```bash
+chmod +x $(which skydiscover-run)
+chmod +x $(which skydiscover-viewer)
+```
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run your first discovery in under 5 minutes
+  </Card>
+  <Card title="Configuration" icon="gear" href="/config/overview">
+    Learn how to configure search algorithms and models
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/skydiscover-run">
+    Complete command-line interface documentation
+  </Card>
+  <Card title="Python API" icon="code" href="/api/run-discovery">
+    Use SkyDiscover programmatically in your Python code
+  </Card>
+</CardGroup>

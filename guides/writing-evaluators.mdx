@@ -1,0 +1,489 @@
+---
+title: Writing Evaluators
+description: Create scoring functions that guide SkyDiscover toward better solutions
+---
+
+## Overview
+
+The evaluator is a Python module that defines an `evaluate()` function. SkyDiscover calls this function with the path to each generated program and uses the returned metrics to guide evolution.
+
+## Basic Structure
+
+```python evaluator.py
+def evaluate(program_path: str) -> dict:
+    """
+    Evaluate a generated program and return metrics.
+    
+    Args:
+        program_path: Path to the program file (.py for code, .txt for prompts)
+    
+    Returns:
+        Dictionary with at least 'combined_score' key
+    """
+    # 1. Load and execute the program
+    # 2. Run tests or compute metrics
+    # 3. Return scores
+    
+    return {
+        "combined_score": 0.85,  # Required: higher is better
+        "accuracy": 0.90,        # Optional: task-specific metrics
+        "speed": 1.2,            # Optional: runtime in seconds
+    }
+```
+
+<Note>
+The `combined_score` key is **required** and must be a float. Higher values indicate better solutions.
+</Note>
+
+## Complete Example: Circle Packing
+
+Here's a real evaluator from the benchmarks:
+
+```python evaluator.py
+import numpy as np
+import subprocess
+import sys
+import pickle
+import tempfile
+import os
+
+def validate_packing(centers, radii):
+    """Check that circles don't overlap and are inside unit square."""
+    n = centers.shape[0]
+    
+    # Check for NaN values
+    if np.isnan(centers).any() or np.isnan(radii).any():
+        return False
+    
+    # Check if radii are nonnegative
+    if (radii < 0).any():
+        return False
+    
+    # Check if circles are inside the unit square
+    for i in range(n):
+        x, y = centers[i]
+        r = radii[i]
+        if x - r < -1e-6 or x + r > 1 + 1e-6 or \
+           y - r < -1e-6 or y + r > 1 + 1e-6:
+            return False
+    
+    # Check for overlaps
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = np.sqrt(np.sum((centers[i] - centers[j]) ** 2))
+            if dist < radii[i] + radii[j] - 1e-6:
+                return False
+    
+    return True
+
+def run_with_timeout(program_path, timeout_seconds=60):
+    """Run program in subprocess with timeout."""
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as temp_file:
+        script = f"""
+import sys
+import numpy as np
+import pickle
+
+sys.path.insert(0, os.path.dirname('{program_path}'))
+
+spec = __import__('importlib.util').util.spec_from_file_location(
+    "program", '{program_path}'
+)
+program = __import__('importlib.util').util.module_from_spec(spec)
+spec.loader.exec_module(program)
+
+centers, radii, sum_radii = program.run_packing()
+
+with open('{temp_file.name}.results', 'wb') as f:
+    pickle.dump({{
+        'centers': centers,
+        'radii': radii,
+        'sum_radii': sum_radii
+    }}, f)
+"""
+        temp_file.write(script.encode())
+        temp_file_path = temp_file.name
+    
+    results_path = f"{temp_file_path}.results"
+    
+    try:
+        process = subprocess.Popen(
+            [sys.executable, temp_file_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        
+        if process.returncode != 0:
+            raise RuntimeError(f"Process exited with code {process.returncode}")
+        
+        with open(results_path, 'rb') as f:
+            results = pickle.load(f)
+        
+        return results['centers'], results['radii'], results['sum_radii']
+    
+    finally:
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+        if os.path.exists(results_path):
+            os.unlink(results_path)
+
+def evaluate(program_path):
+    """Evaluate circle packing solution."""
+    TARGET_VALUE = 2.635  # Best known result
+    
+    try:
+        centers, radii, reported_sum = run_with_timeout(program_path, timeout_seconds=60)
+        
+        # Validate solution
+        valid = validate_packing(centers, radii)
+        sum_radii = np.sum(radii) if valid else 0.0
+        
+        # Calculate metrics
+        target_ratio = sum_radii / TARGET_VALUE if valid else 0.0
+        combined_score = target_ratio  # 1.0 = matches best known
+        
+        return {
+            "combined_score": float(combined_score),
+            "sum_radii": float(sum_radii),
+            "target_ratio": float(target_ratio),
+            "validity": 1.0 if valid else 0.0,
+        }
+    
+    except Exception as e:
+        print(f"Evaluation failed: {e}")
+        return {
+            "combined_score": 0.0,
+            "validity": 0.0,
+            "error": str(e)
+        }
+```
+
+## Evaluator Best Practices
+
+### 1. Handle Errors Gracefully
+
+**Don't** raise exceptions:
+
+```python
+# ❌ Bad
+def evaluate(program_path):
+    result = run_program(program_path)
+    if result is None:
+        raise ValueError("Program failed")
+    return {"combined_score": result}
+```
+
+**Do** return zero score:
+
+```python
+# ✅ Good
+def evaluate(program_path):
+    try:
+        result = run_program(program_path)
+        if result is None:
+            return {"combined_score": 0.0, "error": "Program returned None"}
+        return {"combined_score": result}
+    except Exception as e:
+        return {"combined_score": 0.0, "error": str(e)}
+```
+
+### 2. Use Timeouts
+
+Prevent infinite loops or slow programs:
+
+```python
+import subprocess
+import sys
+
+def evaluate(program_path):
+    try:
+        result = subprocess.run(
+            [sys.executable, program_path],
+            capture_output=True,
+            timeout=60,  # 60 second timeout
+            text=True
+        )
+        # Process result...
+    except subprocess.TimeoutExpired:
+        return {"combined_score": 0.0, "error": "Timeout"}
+```
+
+### 3. Validate Outputs
+
+Check for NaN, inf, negative values, wrong shapes:
+
+```python
+import numpy as np
+
+def evaluate(program_path):
+    result = run_program(program_path)
+    
+    # Check for invalid values
+    if np.isnan(result).any() or np.isinf(result).any():
+        return {"combined_score": 0.0, "error": "Invalid values"}
+    
+    # Check shape
+    if result.shape != (100, 2):
+        return {"combined_score": 0.0, "error": f"Wrong shape: {result.shape}"}
+    
+    # Compute score
+    score = compute_score(result)
+    return {"combined_score": score}
+```
+
+### 4. Normalize Scores
+
+Keep `combined_score` in a reasonable range (e.g., 0.0 to 1.0):
+
+```python
+def evaluate(program_path):
+    raw_score = compute_raw_score(program_path)
+    
+    # Normalize to [0, 1]
+    BEST_KNOWN = 2.635
+    normalized = raw_score / BEST_KNOWN
+    
+    return {
+        "combined_score": min(normalized, 1.0),  # Cap at 1.0
+        "raw_score": raw_score,
+    }
+```
+
+## Multi-Stage Evaluation (Cascade)
+
+Speed up evaluation by implementing staged checks:
+
+```python evaluator.py
+def evaluate_stage1(program_path):
+    """Quick validity check (< 5 seconds)."""
+    try:
+        result = quick_test(program_path)
+        valid = is_valid(result)
+        return {
+            "combined_score": 0.3 if valid else 0.0,
+            "validity": 1.0 if valid else 0.0,
+        }
+    except Exception as e:
+        return {"combined_score": 0.0, "error": str(e)}
+
+def evaluate_stage2(program_path):
+    """Full evaluation with comprehensive tests."""
+    return evaluate(program_path)  # Run full evaluation
+
+def evaluate(program_path):
+    """Complete evaluation."""
+    # Full test suite
+    score = run_comprehensive_tests(program_path)
+    return {"combined_score": score}
+```
+
+Enable in config:
+
+```yaml config.yaml
+evaluator:
+  cascade_evaluation: true
+  cascade_thresholds: [0.3, 0.6]  # Stage 1 cutoff, Stage 2 cutoff
+```
+
+<Accordion title="How Cascade Evaluation Works">
+  1. SkyDiscover calls `evaluate_stage1()` first
+  2. If `combined_score < 0.3`, program is rejected (no stage 2)
+  3. If `0.3 ≤ combined_score < 0.6`, calls `evaluate_stage2()`
+  4. If `combined_score ≥ 0.6`, keeps stage 1 result (assumes valid)
+  
+  This saves compute by rejecting bad programs early.
+</Accordion>
+
+## LLM-as-a-Judge
+
+Add qualitative feedback using an LLM judge:
+
+```yaml config.yaml
+evaluator:
+  llm_as_judge: true
+
+prompt:
+  evaluator_system_message: |
+    You are a code quality judge. Evaluate the given code and return JSON:
+    {
+      "readability": 0.8,
+      "correctness": 0.9,
+      "efficiency": 0.7
+    }
+    Each score should be between 0.0 and 1.0.
+
+llm:
+  evaluator_models:
+    - name: "gpt-4o-mini"
+      weight: 1.0
+```
+
+The LLM judge appends `llm_*` metrics to your evaluator's output:
+
+```python
+{
+  "combined_score": 0.85,        # Your evaluator
+  "accuracy": 0.90,              # Your evaluator
+  "llm_readability": 0.8,        # LLM judge
+  "llm_correctness": 0.9,        # LLM judge
+  "llm_efficiency": 0.7          # LLM judge
+}
+```
+
+## Prompt Optimization Evaluators
+
+For prompt evolution tasks, the evaluator receives a `.txt` file:
+
+```python evaluator.py
+import dspy
+
+def evaluate(prompt_path: str) -> dict:
+    """Evaluate a prompt on a question-answering task."""
+    with open(prompt_path, 'r') as f:
+        prompt = f.read()
+    
+    # Test prompt on validation set
+    correct = 0
+    for question, answer in validation_set:
+        response = llm(prompt.format(question=question))
+        if matches(response, answer):
+            correct += 1
+    
+    accuracy = correct / len(validation_set)
+    
+    return {
+        "combined_score": accuracy,
+        "correct": correct,
+        "total": len(validation_set),
+    }
+```
+
+Set `language: text` in your config:
+
+```yaml config.yaml
+language: text
+diff_based_generation: false
+file_suffix: ".txt"
+```
+
+## Metric Guidelines
+
+<ResponseField name="combined_score" type="float" required>
+  **Required.** Overall quality metric. Higher is better. Used for ranking programs.
+</ResponseField>
+
+<ResponseField name="validity" type="float">
+  Binary 0.0/1.0 or continuous validity score. Helps identify constraint violations.
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error message if evaluation failed. Helps debug generated programs.
+</ResponseField>
+
+<ResponseField name="eval_time" type="float">
+  Evaluation time in seconds. Useful for performance analysis.
+</ResponseField>
+
+<ResponseField name="Custom metrics" type="any">
+  Task-specific metrics (accuracy, loss, reward, etc.). Logged for analysis.
+</ResponseField>
+
+<Tip>
+Return many metrics! SkyDiscover logs all of them, making it easy to analyze trade-offs and trends.
+</Tip>
+
+## Testing Your Evaluator
+
+Test locally before running full discovery:
+
+```python test_evaluator.py
+import sys
+sys.path.insert(0, '.')
+
+from evaluator import evaluate
+
+# Test with your initial program
+metrics = evaluate("initial_program.py")
+print("Metrics:", metrics)
+assert "combined_score" in metrics, "Missing combined_score!"
+assert 0.0 <= metrics["combined_score"] <= 1.0, "Score out of range!"
+print("✓ Evaluator works!")
+```
+
+```bash
+python test_evaluator.py
+```
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="Unit Tests">
+    ```python
+    def evaluate(program_path):
+        # Import program
+        spec = importlib.util.spec_from_file_location("prog", program_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Run tests
+        passed = 0
+        for test_input, expected in test_cases:
+            result = module.solve(test_input)
+            if result == expected:
+                passed += 1
+        
+        return {"combined_score": passed / len(test_cases)}
+    ```
+  </Accordion>
+  
+  <Accordion title="Optimization Benchmarks">
+    ```python
+    def evaluate(program_path):
+        result = run_optimizer(program_path)
+        
+        # Lower is better → invert for combined_score
+        loss = compute_loss(result)
+        score = 1.0 / (1.0 + loss)  # Maps [0, inf) to (0, 1]
+        
+        return {
+            "combined_score": score,
+            "loss": loss,
+        }
+    ```
+  </Accordion>
+  
+  <Accordion title="RL Environments">
+    ```python
+    def evaluate(program_path):
+        policy = load_policy(program_path)
+        
+        # Run episodes
+        rewards = []
+        for _ in range(10):
+            episode_reward = run_episode(env, policy)
+            rewards.append(episode_reward)
+        
+        mean_reward = np.mean(rewards)
+        
+        return {
+            "combined_score": mean_reward / MAX_REWARD,  # Normalize
+            "mean_reward": mean_reward,
+            "std_reward": np.std(rewards),
+        }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Configure evaluator timeouts and cascade settings
+  </Card>
+  
+  <Card title="Benchmarks" icon="flask" href="/guides/benchmarks">
+    See real evaluators from 200+ benchmark tasks
+  </Card>
+</CardGroup>

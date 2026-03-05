@@ -1,0 +1,151 @@
+---
+title: Examples Overview
+description: Real-world examples of using SkyDiscover across different optimization domains
+icon: "rocket"
+---
+
+SkyDiscover includes ~200 benchmarks across math, systems, algorithms, and reasoning domains. Each benchmark demonstrates how to set up and run evolutionary search for different types of optimization problems.
+
+## Example Categories
+
+<CardGroup cols={2}>
+  <Card title="Math Optimization" icon="function" href="/examples/math-optimization">
+    Circle packing, Heilbronn problems, autocorrelation inequalities, and geometric optimization
+  </Card>
+  <Card title="Systems Optimization" icon="server" href="/examples/systems-optimization">
+    Cloud scheduling, load balancing, model placement, and database optimization
+  </Card>
+  <Card title="Algorithm Design" icon="code" href="/examples/algorithm-design">
+    Competitive programming problems from Frontier-CS benchmark (172 tasks)
+  </Card>
+  <Card title="Custom Problems" icon="wrench" href="/examples/custom-problems">
+    Learn how to create your own benchmarks with custom evaluators
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+All benchmarks follow a consistent structure:
+
+```bash
+cd benchmarks/math/circle_packing
+
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+<Tip>
+**Replace `adaevolve` with your search algorithm:** `evox`, `openevolve`, `gepa`, or `shinkaevolve`
+</Tip>
+
+## Benchmark Structure
+
+Every benchmark contains three core files:
+
+<Steps>
+  <Step title="Initial Program">
+    The starting solution with an `EVOLVE-BLOCK` marking the code to be evolved:
+    
+    ```python initial_program.py
+    # EVOLVE-BLOCK-START
+    def solve(input_data):
+        # Your initial solution here
+        return result
+    # EVOLVE-BLOCK-END
+    ```
+  </Step>
+  
+  <Step title="Evaluator">
+    A scoring function that returns a `combined_score` (higher is better):
+    
+    ```python evaluator.py
+    def evaluate(program_path: str) -> dict:
+        # Load and run the program
+        # Compute performance metrics
+        return {"combined_score": 0.73, ...}
+    ```
+  </Step>
+  
+  <Step title="Configuration">
+    System prompt and search settings:
+    
+    ```yaml config.yaml
+    system_prompt: "Optimize the circle packing algorithm..."
+    language: python
+    diff_based_generation: true
+    ```
+  </Step>
+</Steps>
+
+## Available Benchmarks
+
+| Domain | Benchmarks | Example Problems |
+|--------|-----------|------------------|
+| **Math** | 14 tasks | Circle packing, Erdos problems, Heilbronn triangle |
+| **Systems** | 5 tasks | Cloud routing, MoE load balancing, GPU scheduling |
+| **GPU** | 4 tasks | Triton kernel optimization (vecadd, matmul) |
+| **Algorithms** | 172 tasks | Competitive programming (Frontier-CS) |
+| **Reasoning** | Multiple | ARC-AGI visual reasoning |
+| **Prompts** | 1 task | Natural language prompt evolution (HotPotQA) |
+
+## Installation
+
+Install dependencies based on which benchmarks you want to run:
+
+<CodeGroup>
+```bash Base
+uv sync
+```
+
+```bash Math Benchmarks
+uv sync --extra math
+```
+
+```bash Systems Benchmarks
+uv sync --extra adrs
+```
+
+```bash Algorithm Benchmarks
+uv sync --extra frontier-cs
+```
+
+```bash External Search Algorithms
+uv sync --extra external
+```
+</CodeGroup>
+
+<Note>
+Some benchmarks may have additional `requirements.txt` files in their directories. Install these with:
+```bash
+uv pip install -r benchmarks/<task>/requirements.txt
+```
+</Note>
+
+## Environment Setup
+
+Set your API key before running:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Math Examples" icon="function" href="/examples/math-optimization">
+    Explore mathematical optimization problems
+  </Card>
+  <Card title="Systems Examples" icon="server" href="/examples/systems-optimization">
+    Learn about systems optimization tasks
+  </Card>
+  <Card title="Create Custom" icon="plus" href="/examples/custom-problems">
+    Build your own benchmark
+  </Card>
+  <Card title="View Benchmarks" icon="folder" href="https://github.com/sky-shift/skydiscover">
+    Browse all benchmarks on GitHub
+  </Card>
+</CardGroup>

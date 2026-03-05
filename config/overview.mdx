@@ -1,0 +1,220 @@
+---
+title: Configuration Overview
+description: Learn how to configure SkyDiscover using YAML files and understand the configuration hierarchy
+icon: gear
+---
+
+## Introduction
+
+SkyDiscover uses YAML configuration files to control all aspects of the evolutionary search process. Configuration files define LLM settings, search algorithms, evaluation parameters, prompts, and more.
+
+## Configuration Structure
+
+A SkyDiscover configuration file consists of several top-level sections:
+
+```yaml
+# General settings
+max_iterations: 100
+checkpoint_interval: 10
+log_level: "INFO"
+
+# Component configurations
+llm:          # LLM model settings
+prompt:       # Prompt generation
+search:       # Search algorithm and database
+evaluator:    # Program evaluation
+agentic:      # Agentic generation (optional)
+monitor:      # Live dashboard (optional)
+```
+
+## Loading Configuration
+
+### From File
+
+Load a configuration file when running SkyDiscover:
+
+```bash
+skydiscover-run initial_program.py evaluator.py -c configs/adaevolve.yaml
+```
+
+### Programmatic Loading
+
+```python
+from skydiscover.config import load_config
+
+# Load from YAML file
+config = load_config("configs/adaevolve.yaml")
+
+# Use defaults
+config = load_config()
+```
+
+## Configuration Hierarchy
+
+SkyDiscover resolves configuration values in the following order (later sources override earlier ones):
+
+<Steps>
+  <Step title="Default Values">
+    Built-in defaults from dataclass definitions in `skydiscover/config.py:522-561`
+  </Step>
+  
+  <Step title="YAML File">
+    Values specified in your configuration file override defaults
+  </Step>
+  
+  <Step title="Environment Variables">
+    Environment variables like `OPENAI_API_KEY`, `OPENAI_API_BASE` override file settings
+  </Step>
+  
+  <Step title="CLI Arguments">
+    Command-line flags like `--model`, `--search` override all previous settings
+  </Step>
+</Steps>
+
+### Environment Variable Expansion
+
+Use `${VAR}` syntax to reference environment variables in YAML:
+
+```yaml
+llm:
+  api_key: ${OPENAI_API_KEY}
+  models:
+    - name: "gpt-5"
+```
+
+## General Settings
+
+<ParamField path="max_iterations" type="int" default="100">
+  Maximum number of evolutionary iterations to run
+</ParamField>
+
+<ParamField path="checkpoint_interval" type="int" default="10">
+  Save checkpoint every N iterations
+</ParamField>
+
+<ParamField path="log_level" type="str" default="INFO">
+  Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`
+</ParamField>
+
+<ParamField path="log_dir" type="str" default="None">
+  Directory for log files. If None, logs to console only
+</ParamField>
+
+<ParamField path="language" type="str" default="None">
+  Programming language hint (e.g., `python`, `javascript`)
+</ParamField>
+
+<ParamField path="file_suffix" type="str" default=".py">
+  File extension for generated programs
+</ParamField>
+
+## Generation Settings
+
+<ParamField path="diff_based_generation" type="bool" default="true">
+  Generate diffs instead of complete programs to improve LLM focus
+</ParamField>
+
+<ParamField path="max_solution_length" type="int" default="60000">
+  Maximum character length for generated solutions
+</ParamField>
+
+<ParamField path="max_parallel_iterations" type="int" default="1">
+  Number of iterations to run concurrently. Set to >1 for parallel execution
+</ParamField>
+
+## Human-in-the-Loop Settings
+
+<ParamField path="human_feedback_enabled" type="bool" default="false">
+  Enable human feedback integration
+</ParamField>
+
+<ParamField path="human_feedback_file" type="str" default="None">
+  Path to file containing human feedback
+</ParamField>
+
+<ParamField path="human_feedback_mode" type="str" default="append">
+  How to handle feedback: `append` or `replace`
+</ParamField>
+
+## Configuration Files
+
+SkyDiscover includes several preset configurations in `configs/`:
+
+<CardGroup cols={2}>
+  <Card title="default.yaml" icon="star" href="https://github.com/yourusername/skydiscover/blob/main/configs/default.yaml">
+    Basic top-k search configuration
+  </Card>
+  
+  <Card title="adaevolve.yaml" icon="island" href="https://github.com/yourusername/skydiscover/blob/main/configs/adaevolve.yaml">
+    Adaptive multi-island evolutionary search
+  </Card>
+  
+  <Card title="openevolve_native.yaml" icon="grid" href="https://github.com/yourusername/skydiscover/blob/main/configs/openevolve_native.yaml">
+    MAP-Elites quality-diversity search
+  </Card>
+  
+  <Card title="llm_judge.yaml" icon="gavel" href="https://github.com/yourusername/skydiscover/blob/main/configs/llm_judge.yaml">
+    LLM-as-a-judge evaluation
+  </Card>
+</CardGroup>
+
+## Example: Complete Configuration
+
+```yaml configs/default.yaml
+# General settings
+max_iterations: 100
+checkpoint_interval: 10
+log_level: "INFO"
+random_seed: 42
+
+# LLM configuration
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 32000
+  timeout: 600
+
+# Search configuration
+search:
+  type: "topk"
+  database:
+    random_seed: 42
+  num_context_programs: 4
+
+# Prompt configuration
+prompt:
+  system_message: "You are an expert to help find the best solution to the problem."
+
+# Evaluator configuration
+evaluator:
+  timeout: 10000
+  max_retries: 3
+  cascade_evaluation: false
+
+# Generation settings
+diff_based_generation: true
+max_solution_length: 60000
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LLM Configuration" icon="brain" href="/config/llm">
+    Configure models, API settings, and generation parameters
+  </Card>
+  
+  <Card title="Search Configuration" icon="magnifying-glass" href="/config/search">
+    Choose and configure search algorithms
+  </Card>
+  
+  <Card title="Prompt Configuration" icon="message" href="/config/prompt">
+    Customize system messages and prompts
+  </Card>
+  
+  <Card title="Monitor Configuration" icon="chart-line" href="/config/monitor">
+    Set up the live monitoring dashboard
+  </Card>
+</CardGroup>

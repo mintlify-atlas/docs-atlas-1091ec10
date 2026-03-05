@@ -1,0 +1,421 @@
+---
+title: 'OpenEvolve Native'
+description: 'MAP-Elites with island-based evolutionary search'
+icon: 'map'
+---
+
+## Overview
+
+OpenEvolve Native is a faithful SkyDiscover port of the OpenEvolve algorithm, implementing MAP-Elites (a quality-diversity algorithm) with an island-based population model. It maintains a feature map that preserves diverse solutions across multiple behavioral dimensions.
+
+<CardGroup cols={2}>
+  <Card title="MAP-Elites" icon="grid">
+    Maintains archive of best programs in each region of feature space
+  </Card>
+  <Card title="Island Populations" icon="island">
+    Multiple independent populations with periodic migration
+  </Card>
+  <Card title="Quality-Diversity" icon="chart-scatter">
+    Optimizes both fitness and behavioral diversity
+  </Card>
+  <Card title="Adaptive Sampling" icon="shuffle">
+    Balances exploration, exploitation, and random search
+  </Card>
+</CardGroup>
+
+## Key Concepts
+
+### MAP-Elites Archive
+
+MAP-Elites discretizes the behavior space into a grid and maintains the best solution in each cell:
+
+```
+Feature Space Grid (2D example: complexity × diversity)
+
+   Diversity →
+C  ┌─────┬─────┬─────┬─────┐
+o  │ A   │     │ C   │     │  Each cell holds the best
+m  │0.85 │     │0.78 │     │  program with that feature
+p  ├─────┼─────┼─────┼─────┤  combination
+l  │     │ B   │     │ D   │
+e  │     │0.92 │     │0.81 │  Numbers = fitness scores
+x  ├─────┼─────┼─────┼─────┤
+i  │ E   │     │     │     │  Empty = no solution found
+t  │0.73 │     │     │     │  for that behavior yet
+y  └─────┴─────┴─────┴─────┘
+```
+
+This preserves diverse solutions instead of just the single best.
+
+### Feature Dimensions
+
+OpenEvolve Native supports both **built-in** and **custom** feature dimensions:
+
+**Built-in features:**
+- `complexity`: Length of solution code
+- `diversity`: Average distance from reference set
+- `score`: Fitness value itself
+
+**Custom features:**
+Any metric returned by your evaluator can be used as a feature dimension.
+
+### Island Architecture
+
+Multiple independent populations (islands) evolve in parallel:
+- Each island has its own MAP-Elites grid
+- Islands evolve independently most of the time
+- Periodic **migration** exchanges top solutions between islands
+- Prevents premature convergence to single approach
+
+## Configuration
+
+### Basic Usage
+
+```bash
+skydiscover-run initial_program.py evaluator.py \
+  --search openevolve_native \
+  --iterations 200
+```
+
+### Configuration File
+
+```yaml
+search:
+  type: openevolve_native
+  database:
+    # Island configuration
+    num_islands: 5
+    population_size: 40
+    
+    # MAP-Elites archive
+    archive_size: 100
+    feature_dimensions: ["complexity", "diversity"]
+    feature_bins: 10  # 10x10 grid = 100 cells
+    
+    # Sampling strategy
+    exploration_ratio: 0.2   # Random from island
+    exploitation_ratio: 0.7  # Elite from archive
+    # remainder (0.1) is random from entire population
+    
+    # Migration
+    migration_interval: 10   # Migrate every 10 generations
+    migration_rate: 0.1      # Migrate top 10% of each island
+    
+    # Diversity tracking
+    diversity_reference_size: 20
+```
+
+## Configuration Options
+
+<ParamField path="num_islands" type="int" default="5">
+  Number of independent island populations
+</ParamField>
+
+<ParamField path="population_size" type="int" default="40">
+  Maximum total programs across all islands
+</ParamField>
+
+<ParamField path="archive_size" type="int" default="100">
+  Size of elite archive (best programs)
+</ParamField>
+
+<ParamField path="feature_dimensions" type="list" default="['complexity', 'diversity']">
+  List of feature dimensions for MAP-Elites grid. Can be:
+  - Built-in: `"complexity"`, `"diversity"`, `"score"`
+  - Custom: Any metric name from your evaluator
+  
+  Example with custom features:
+  ```yaml
+  feature_dimensions: ["accuracy", "latency"]
+  ```
+</ParamField>
+
+<ParamField path="feature_bins" type="int | dict" default="10">
+  Number of bins per feature dimension.
+  
+  **Single value** (same for all dimensions):
+  ```yaml
+  feature_bins: 10  # 10x10 grid for 2 features
+  ```
+  
+  **Per-dimension** (different resolution):
+  ```yaml
+  feature_bins:
+    complexity: 20
+    diversity: 5
+  ```
+</ParamField>
+
+<ParamField path="exploration_ratio" type="float" default="0.2">
+  Fraction of iterations to sample random parent from island (exploration)
+</ParamField>
+
+<ParamField path="exploitation_ratio" type="float" default="0.7">
+  Fraction of iterations to sample elite parent from archive (exploitation)
+</ParamField>
+
+<ParamField path="migration_interval" type="int" default="10">
+  Number of generations between island migrations
+</ParamField>
+
+<ParamField path="migration_rate" type="float" default="0.1">
+  Fraction of island population to migrate (top programs)
+</ParamField>
+
+<ParamField path="elite_selection_ratio" type="float" default="0.1">
+  Fraction of context programs to sample from island elite
+</ParamField>
+
+<ParamField path="diversity_reference_size" type="int" default="20">
+  Number of programs in reference set for diversity calculation
+</ParamField>
+
+## How It Works
+
+### Sampling Strategy
+
+On each iteration, OpenEvolve selects a parent using a probabilistic strategy:
+
+```python
+rand = random()
+
+if rand < exploration_ratio:
+    # Exploration: random program from current island
+    parent = random_choice(island_programs)
+    
+elif rand < exploration_ratio + exploitation_ratio:
+    # Exploitation: elite program from archive
+    parent = sample_from_archive(prefer_current_island=True)
+    
+else:
+    # Global random: any program from any island
+    parent = random_choice(all_programs)
+```
+
+This balances:
+- **Exploration** (0.2): Try diverse approaches
+- **Exploitation** (0.7): Refine known good solutions  
+- **Global search** (0.1): Avoid island isolation
+
+### MAP-Elites Insertion
+
+When a new program is generated:
+
+1. **Calculate features**: Determine feature coordinates (e.g., complexity=5, diversity=3)
+2. **Find cell**: Locate corresponding grid cell
+3. **Compare**: Is new program better than current cell occupant?
+4. **Update**: If yes, replace cell occupant
+
+```python
+def add(program):
+    coords = calculate_feature_coords(program)  # e.g., [5, 3]
+    cell_key = "5-3"
+    
+    if cell_key not in feature_map or is_better(program, feature_map[cell_key]):
+        feature_map[cell_key] = program.id
+        if cell_key in feature_map:  # Replace old occupant
+            remove_from_island(feature_map[cell_key])
+```
+
+### Migration Process
+
+Every `migration_interval` generations:
+
+1. **Select migrants**: Top `migration_rate` fraction from each island
+2. **Ring topology**: Island i sends to islands i+1 and i-1
+3. **Copy programs**: Migrants are copied (not moved)
+4. **Prevent duplicates**: Skip if target island already has identical solution
+
+## When to Use OpenEvolve Native
+
+<AccordionGroup>
+  <Accordion title="Best For" icon="check">
+    - Problems with multiple complementary solutions
+    - Need for behavioral diversity (not just fitness)
+    - Multi-objective optimization with trade-offs
+    - Long runs (150+ iterations) where quality-diversity pays off
+    - Problems with custom feature dimensions
+  </Accordion>
+  
+  <Accordion title="Avoid When" icon="xmark">
+    - Single optimal solution exists
+    - Short runs (< 50 iterations) - not enough time for MAP-Elites to fill
+    - No meaningful behavioral dimensions
+    - Need for maximum simplicity
+  </Accordion>
+</AccordionGroup>
+
+## Example: Algorithm Design
+
+### Custom Feature Dimensions
+
+Optimize sorting algorithms with custom features:
+
+```python
+# evaluator.py
+def evaluate(program_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("solution", program_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    
+    # Test on different input types
+    random_time = benchmark(module.sort, random_data(1000))
+    sorted_time = benchmark(module.sort, sorted_data(1000))
+    reverse_time = benchmark(module.sort, reverse_sorted_data(1000))
+    
+    # Custom feature dimensions
+    return {
+        "combined_score": 1.0 / random_time,  # Fitness
+        "sorted_advantage": sorted_time / random_time,  # Feature 1
+        "reverse_advantage": reverse_time / random_time,  # Feature 2
+    }
+```
+
+```yaml
+# config.yaml
+search:
+  type: openevolve_native
+  database:
+    num_islands: 5
+    feature_dimensions: ["sorted_advantage", "reverse_advantage"]
+    feature_bins: 10
+    archive_size: 100
+```
+
+**Result**: Discovers diverse sorting algorithms optimized for different input patterns.
+
+## Monitoring OpenEvolve Native
+
+### Island Status
+
+```python
+for i in range(database.num_islands):
+    island_programs = database.islands[i]
+    print(f"Island {i}: {len(island_programs)} programs")
+    
+    if database.island_best_programs[i]:
+        best = database.programs[database.island_best_programs[i]]
+        print(f"  Best score: {best.metrics['combined_score']:.4f}")
+```
+
+### MAP-Elites Coverage
+
+```python
+# How many cells are occupied?
+for i, feature_map in enumerate(database.island_feature_maps):
+    total_cells = database.feature_bins ** len(database.feature_dimensions)
+    coverage = len(feature_map) / total_cells
+    print(f"Island {i} coverage: {coverage:.1%} ({len(feature_map)}/{total_cells} cells)")
+```
+
+### Archive Quality
+
+```python
+archive_programs = [database.programs[pid] for pid in database.archive 
+                    if pid in database.programs]
+archive_scores = [p.metrics['combined_score'] for p in archive_programs]
+
+print(f"Archive size: {len(archive_programs)}")
+print(f"Archive quality: {sum(archive_scores) / len(archive_scores):.4f} avg")
+```
+
+### Feature Space Visualization
+
+Visualize the MAP-Elites grid (2D example):
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Extract grid data
+grid = np.zeros((database.feature_bins, database.feature_bins))
+for key, pid in database.island_feature_maps[0].items():
+    i, j = map(int, key.split('-'))
+    prog = database.programs[pid]
+    grid[i, j] = prog.metrics['combined_score']
+
+# Plot
+plt.imshow(grid, origin='lower', cmap='viridis')
+plt.colorbar(label='Fitness')
+plt.xlabel(database.feature_dimensions[0])
+plt.ylabel(database.feature_dimensions[1])
+plt.title('MAP-Elites Feature Grid')
+plt.show()
+```
+
+## Advanced Usage
+
+### Custom Feature Bins per Dimension
+
+```yaml
+search:
+  type: openevolve_native
+  database:
+    feature_dimensions: ["accuracy", "latency", "memory"]
+    feature_bins:
+      accuracy: 20     # Fine-grained
+      latency: 10      # Medium
+      memory: 5        # Coarse
+```
+
+Total cells = 20 × 10 × 5 = 1,000
+
+### Asymmetric Migration
+
+Customize migration topology:
+
+```python
+from skydiscover.search.openevolve_native import OpenEvolveNativeDatabase
+
+class CustomMigrationDatabase(OpenEvolveNativeDatabase):
+    def _migrate_programs(self):
+        # Custom topology: star (all islands → island 0 → all islands)
+        hub = 0
+        
+        # Collect migrants to hub
+        for i in range(1, self.num_islands):
+            # ... migration logic
+        
+        # Distribute from hub
+        # ... distribution logic
+```
+
+## Comparison with Other Algorithms
+
+| Algorithm | Diversity Mechanism | Archive | Best For |
+|-----------|-------------------|---------|----------|
+| **OpenEvolve Native** | MAP-Elites grid | Yes | Quality-diversity |
+| [AdaEvolve](/algorithms/adaevolve) | Island isolation | Per-island | Adaptive search |
+| [Beam Search](/algorithms/beam-search) | Beam pruning | No | Discrete choices |
+| [Top-K](/algorithms/topk) | None | No | Simple refinement |
+
+## Tips for Best Results
+
+<Steps>
+  <Step title="Choose Meaningful Features">
+    Feature dimensions should capture **behavioral differences** that matter for your problem. Don't just use `complexity` and `diversity` by default.
+  </Step>
+  
+  <Step title="Balance Feature Bins">
+    - Too few bins (< 5): Insufficient diversity
+    - Too many bins (> 20): Sparse coverage, slow fill
+    - Sweet spot: 8-12 bins per dimension
+  </Step>
+  
+  <Step title="Tune Exploration/Exploitation">
+    Adjust based on problem:
+    - Unknown landscape: Higher exploration (0.3-0.4)
+    - Refinement needed: Higher exploitation (0.7-0.8)
+  </Step>
+  
+  <Step title="Monitor Coverage">
+    Track MAP-Elites coverage over time. If coverage plateaus early, features may be too correlated.
+  </Step>
+</Steps>
+
+## Related Algorithms
+
+- [AdaEvolve](/algorithms/adaevolve) - Island-based with adaptive intensity
+- [GEPA Native](/algorithms/gepa-native) - Pareto frontier instead of MAP-Elites
+- [EvoX](/algorithms/evox) - Can evolve the OpenEvolve strategy itself

@@ -1,0 +1,638 @@
+---
+title: Configuration
+description: Comprehensive guide to SkyDiscover YAML configuration files
+---
+
+## Configuration File Structure
+
+SkyDiscover uses YAML files to configure all aspects of the discovery process:
+
+```yaml config.yaml
+# General settings
+max_iterations: 100
+checkpoint_interval: 10
+log_level: "INFO"
+
+# LLM configuration
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  temperature: 0.7
+  max_tokens: 32000
+
+# Search algorithm
+search:
+  type: "adaevolve"
+  num_context_programs: 4
+  database:
+    population_size: 20
+    num_islands: 2
+
+# Prompt configuration
+prompt:
+  system_message: "You are an expert to help find the best solution."
+
+# Evaluator configuration
+evaluator:
+  timeout: 360
+  cascade_evaluation: true
+```
+
+## General Settings
+
+<ParamField path="max_iterations" type="int" default="100">
+  Maximum number of discovery iterations
+</ParamField>
+
+<ParamField path="checkpoint_interval" type="int" default="10">
+  Save checkpoint every N iterations
+</ParamField>
+
+<ParamField path="log_level" type="string" default="INFO">
+  Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+</ParamField>
+
+<ParamField path="log_dir" type="string" default="null">
+  Custom directory for log files (default: output_dir/logs)
+</ParamField>
+
+<ParamField path="language" type="string" default="python">
+  Target language: `python` for code, `text` for prompts
+</ParamField>
+
+<ParamField path="file_suffix" type="string" default=".py">
+  File extension for generated programs (`.py`, `.txt`, `.cpp`, etc.)
+</ParamField>
+
+<ParamField path="diff_based_generation" type="bool" default="true">
+  Generate diffs instead of full programs (faster, more focused)
+</ParamField>
+
+<ParamField path="max_solution_length" type="int" default="60000">
+  Maximum characters in generated solutions
+</ParamField>
+
+<ParamField path="max_parallel_iterations" type="int" default="1">
+  Number of iterations to run concurrently (1 = sequential)
+</ParamField>
+
+## LLM Configuration
+
+### Basic Model Setup
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  
+  api_base: "https://api.openai.com/v1"
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 32000
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+```
+
+### Multiple Models
+
+SkyDiscover samples from multiple models based on weights:
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.5
+    - name: "gemini/gemini-3-pro"
+      weight: 0.3
+    - name: "claude-3-7-sonnet"
+      weight: 0.2
+  
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+### Per-Model Configuration
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.7
+      temperature: 0.8
+      max_tokens: 40000
+    - name: "gemini/gemini-3-pro"
+      weight: 0.3
+      temperature: 0.6
+      max_tokens: 30000
+      api_key: ${GEMINI_API_KEY}  # Model-specific key
+  
+  # Defaults for models without explicit values
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+### Evaluator and Guide Models
+
+```yaml
+llm:
+  # Main models for solution generation
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  
+  # Models for LLM-as-judge evaluation
+  evaluator_models:
+    - name: "gpt-4o-mini"
+      weight: 1.0
+  
+  # Models for high-level strategy (paradigm breakthrough)
+  guide_models:
+    - name: "o1"
+      reasoning_effort: "high"
+      weight: 1.0
+```
+
+<Note>
+If `evaluator_models` or `guide_models` are not specified, they default to the same models as the main `models` list.
+</Note>
+
+### LLM Parameters
+
+<ParamField path="llm.api_base" type="string" default="https://api.openai.com/v1">
+  Base URL for API requests
+</ParamField>
+
+<ParamField path="llm.api_key" type="string" default="null">
+  API key (defaults to environment variable)
+</ParamField>
+
+<ParamField path="llm.temperature" type="float" default="0.7">
+  Sampling temperature (0.0 = deterministic, 2.0 = very random)
+</ParamField>
+
+<ParamField path="llm.top_p" type="float" default="0.95">
+  Nucleus sampling threshold
+</ParamField>
+
+<ParamField path="llm.max_tokens" type="int" default="32000">
+  Maximum tokens per generation
+</ParamField>
+
+<ParamField path="llm.timeout" type="int" default="600">
+  Request timeout in seconds
+</ParamField>
+
+<ParamField path="llm.retries" type="int" default="3">
+  Number of retry attempts on failure
+</ParamField>
+
+<ParamField path="llm.retry_delay" type="int" default="5">
+  Seconds to wait between retries
+</ParamField>
+
+<ParamField path="llm.reasoning_effort" type="string" default="null">
+  Reasoning effort for o1/o3 models: `low`, `medium`, `high`
+</ParamField>
+
+## Search Configuration
+
+### Top-K (Simple)
+
+```yaml
+search:
+  type: "topk"
+  num_context_programs: 4
+  database:
+    db_path: "database.db"
+    log_prompts: true
+```
+
+### AdaEvolve (Adaptive Multi-Island)
+
+```yaml
+search:
+  type: "adaevolve"
+  num_context_programs: 4
+  database:
+    # Population
+    population_size: 20
+    num_islands: 2
+    
+    # Adaptive intensity
+    decay: 0.9
+    intensity_min: 0.15
+    intensity_max: 0.5
+    use_adaptive_search: true
+    
+    # Island selection
+    use_ucb_selection: true
+    
+    # Migration
+    use_migration: true
+    migration_interval: 15
+    migration_count: 5
+    
+    # Archive
+    use_unified_archive: true
+    fitness_weight: 1.0
+    novelty_weight: 0.0
+    diversity_strategy: "code"  # "code", "metric", or "hybrid"
+    
+    # Dynamic islands
+    use_dynamic_islands: true
+    max_islands: 5
+    spawn_productivity_threshold: 0.015
+    spawn_cooldown_iterations: 30
+    
+    # Paradigm breakthrough
+    use_paradigm_breakthrough: true
+    paradigm_window_size: 10
+    paradigm_improvement_threshold: 0.12
+    paradigm_max_uses: 2
+    paradigm_num_to_generate: 3
+```
+
+<Accordion title="AdaEvolve Parameters Explained">
+  **Adaptive Intensity:**
+  - `decay`: EMA weight (0.9 = slow adaptation)
+  - `intensity_min`: Min search intensity (exploitation)
+  - `intensity_max`: Max search intensity (exploration)
+  
+  **Migration:**
+  - Every `migration_interval` iterations, top `migration_count` programs migrate to neighboring islands
+  
+  **Diversity Strategy:**
+  - `code`: Edit distance between solutions
+  - `metric`: Euclidean distance in metric space
+  - `hybrid`: Weighted combination
+  
+  **Paradigm Breakthrough:**
+  - Triggered when improvement rate drops below threshold
+  - Generates high-level strategy ideas to escape local optima
+</Accordion>
+
+### Beam Search
+
+```yaml
+search:
+  type: "beam_search"
+  num_context_programs: 4
+  database:
+    beam_width: 5
+    beam_selection_strategy: "diversity_weighted"
+    beam_diversity_weight: 0.3
+    beam_temperature: 1.0
+    beam_depth_penalty: 0.0
+```
+
+### Best-of-N
+
+```yaml
+search:
+  type: "best_of_n"
+  num_context_programs: 4
+  database:
+    best_of_n: 5
+```
+
+### EvoX (Co-Evolution)
+
+```yaml
+search:
+  type: "evox"
+  num_context_programs: 4
+  database:
+    database_file_path: null  # Uses default search strategy
+    evaluation_file: null     # Uses default evaluator
+    config_path: null         # Uses default config
+    auto_generate_variation_operators: true
+```
+
+### OpenEvolve Native (MAP-Elites)
+
+```yaml
+search:
+  type: "openevolve_native"
+  num_context_programs: 4
+  database:
+    num_islands: 5
+    population_size: 40
+    archive_size: 100
+    exploration_ratio: 0.2
+    exploitation_ratio: 0.7
+    elite_selection_ratio: 0.1
+    feature_dimensions: ["complexity", "diversity"]
+    feature_bins: 10
+    migration_interval: 10
+    migration_rate: 0.1
+```
+
+### GEPA Native
+
+```yaml
+search:
+  type: "gepa_native"
+  num_context_programs: 4
+  database:
+    population_size: 40
+    candidate_selection_strategy: "epsilon_greedy"  # "best", "pareto"
+    epsilon: 0.1
+    acceptance_gating: true
+    use_merge: true
+    merge_after_stagnation: 15
+```
+
+## Prompt Configuration
+
+### System Message
+
+```yaml
+prompt:
+  system_message: |
+    You are an expert mathematician specializing in circle packing.
+    
+    Your task is to improve a function that arranges N circles in a unit
+    square to maximize the sum of their radii.
+    
+    Key insights:
+    - Hexagonal patterns achieve densest packing
+    - Edge effects make square containers harder
+    - Consider layered/shell arrangements
+```
+
+### External File
+
+```yaml
+prompt:
+  system_message: "system_prompt.txt"  # Load from file
+```
+
+### Template Selection
+
+```yaml
+prompt:
+  template: "default"      # "default" or "evox"
+  template_dir: null       # Custom template directory
+  system_message: "system_message"
+  evaluator_system_message: "evaluator_system_message"  # For LLM judge
+```
+
+### Simplification Suggestion
+
+```yaml
+prompt:
+  suggest_simplification_after_chars: 500  # Suggest simplifying if solution > 500 chars
+```
+
+## Evaluator Configuration
+
+```yaml
+evaluator:
+  timeout: 360              # Evaluation timeout (seconds)
+  max_retries: 3            # Retry on failure
+  
+  # Cascade evaluation
+  cascade_evaluation: true
+  cascade_thresholds: [0.3, 0.6]
+  
+  # LLM-as-a-judge
+  llm_as_judge: false
+```
+
+<ParamField path="evaluator.timeout" type="int" default="360">
+  Maximum seconds for evaluation
+</ParamField>
+
+<ParamField path="evaluator.max_retries" type="int" default="3">
+  Retry failed evaluations N times
+</ParamField>
+
+<ParamField path="evaluator.cascade_evaluation" type="bool" default="true">
+  Enable multi-stage evaluation (requires `evaluate_stage1()` and `evaluate_stage2()` in evaluator)
+</ParamField>
+
+<ParamField path="evaluator.cascade_thresholds" type="array" default="[0.3, 0.6]">
+  Score thresholds for cascade stages
+</ParamField>
+
+<ParamField path="evaluator.llm_as_judge" type="bool" default="false">
+  Enable LLM judge for qualitative feedback
+</ParamField>
+
+## Agentic Configuration
+
+Enable codebase-aware solution generation:
+
+```yaml
+agentic:
+  enabled: false
+  codebase_root: null  # Auto-detected from initial_program location
+  
+  # Agent loop limits
+  max_steps: 5
+  per_step_timeout: 60.0
+  overall_timeout: 300.0
+  
+  # Context management
+  max_context_chars: 400000
+  max_file_chars: 50000
+  max_search_results: 50
+  max_files_read: 20
+  
+  # Regex safety
+  regex_timeout: 2.0
+  max_regex_length: 200
+  
+  # Repo map
+  repo_map_max_depth: 4
+  
+  # File access
+  allowed_extensions:
+    - ".py"
+    - ".txt"
+    - ".md"
+    - ".json"
+    - ".yaml"
+  excluded_dirs:
+    - ".git"
+    - "__pycache__"
+    - "node_modules"
+    - ".venv"
+```
+
+## Monitor Configuration
+
+Enable live dashboard:
+
+```yaml
+monitor:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+  max_solution_length: 10000
+  
+  # AI summary settings
+  summary_model: "gpt-5-mini"
+  summary_api_key: null  # Defaults to OPENAI_API_KEY
+  summary_api_base: "https://api.openai.com/v1"
+  summary_top_k: 3       # Summarize top-K programs
+  summary_interval: 0    # Auto-generate every N programs (0 = manual only)
+```
+
+See the [Monitoring guide](/guides/monitoring) for details.
+
+## Human Feedback Configuration
+
+```yaml
+human_feedback_enabled: true
+human_feedback_file: "human_feedback.md"
+human_feedback_mode: "append"  # "append" or "replace"
+```
+
+Write feedback in Markdown:
+
+```markdown human_feedback.md
+# Iteration 15
+
+The packing is too dense in the center. Try spreading circles more evenly.
+
+# Iteration 22
+
+Good improvement! Now focus on optimizing corner utilization.
+```
+
+## Environment Variable Expansion
+
+Use `${VAR}` syntax to reference environment variables:
+
+```yaml
+llm:
+  api_key: ${OPENAI_API_KEY}
+  models:
+    - name: "gemini/gemini-3-pro"
+      api_key: ${GEMINI_API_KEY}
+```
+
+## Example Configurations
+
+<CodeGroup>
+
+```yaml Default (Top-K)
+max_iterations: 100
+checkpoint_interval: 10
+log_level: "INFO"
+
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  temperature: 0.7
+  max_tokens: 32000
+
+search:
+  type: "topk"
+  num_context_programs: 4
+
+prompt:
+  system_message: "You are an expert to help find the best solution."
+
+evaluator:
+  timeout: 360
+  cascade_evaluation: false
+
+diff_based_generation: true
+```
+
+```yaml AdaEvolve
+max_iterations: 100
+log_level: "INFO"
+
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  temperature: 0.7
+  max_tokens: 32000
+
+search:
+  type: "adaevolve"
+  num_context_programs: 4
+  database:
+    population_size: 20
+    num_islands: 2
+    use_adaptive_search: true
+    use_paradigm_breakthrough: true
+
+prompt:
+  system_message: "system_prompt.txt"
+
+evaluator:
+  timeout: 360
+  cascade_evaluation: true
+  cascade_thresholds: [0.3, 0.6]
+```
+
+```yaml Multi-Model
+max_iterations: 200
+
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.5
+      temperature: 0.8
+    - name: "gemini/gemini-3-pro"
+      weight: 0.3
+    - name: "claude-3-7-sonnet"
+      weight: 0.2
+  max_tokens: 32000
+
+search:
+  type: "beam_search"
+  database:
+    beam_width: 8
+```
+
+```yaml LLM Judge
+max_iterations: 50
+
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  evaluator_models:
+    - name: "gpt-4o-mini"
+      weight: 1.0
+
+prompt:
+  evaluator_system_message: |
+    You are a code quality judge. Return JSON with scores 0.0-1.0:
+    {"readability": 0.8, "correctness": 0.9, "efficiency": 0.7}
+
+evaluator:
+  llm_as_judge: true
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Providers" icon="server" href="/guides/model-providers">
+    Set up different LLM providers
+  </Card>
+  
+  <Card title="Writing Evaluators" icon="flask" href="/guides/writing-evaluators">
+    Create effective scoring functions
+  </Card>
+  
+  <Card title="Monitoring" icon="chart-line" href="/guides/monitoring">
+    Enable the live dashboard
+  </Card>
+  
+  <Card title="Benchmarks" icon="flask" href="/guides/benchmarks">
+    See real configuration examples
+  </Card>
+</CardGroup>

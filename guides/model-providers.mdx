@@ -1,0 +1,595 @@
+---
+title: Model Providers
+description: Configure OpenAI, Gemini, Anthropic, DeepSeek, and local models with SkyDiscover
+---
+
+## Overview
+
+SkyDiscover supports any OpenAI-compatible API endpoint. Provider-specific configurations are handled automatically based on model name prefixes.
+
+## Supported Providers
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="openai">
+    GPT-4, GPT-5, o1, o3, o4 models
+  </Card>
+  
+  <Card title="Google Gemini" icon="google">
+    Gemini 2.0, 3.0 models
+  </Card>
+  
+  <Card title="Anthropic" icon="brain">
+    Claude 3.5, 3.7, 4.0 models
+  </Card>
+  
+  <Card title="DeepSeek" icon="code">
+    DeepSeek-V3, DeepSeek-Coder
+  </Card>
+  
+  <Card title="Mistral" icon="wind">
+    Mistral Large, Codestral
+  </Card>
+  
+  <Card title="Local Models" icon="server">
+    Ollama, vLLM, any OpenAI-compatible
+  </Card>
+</CardGroup>
+
+## OpenAI
+
+### Setup
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+### Configuration
+
+<CodeGroup>
+
+```yaml Config File
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+    - name: "o1"
+      reasoning_effort: "high"
+      weight: 0.3
+  api_base: "https://api.openai.com/v1"
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+```bash CLI
+skydiscover-run init.py eval.py -m gpt-5
+```
+
+```python Python API
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5",
+    iterations=50,
+)
+```
+
+</CodeGroup>
+
+### Supported Models
+
+- `gpt-5` (latest GPT-5)
+- `gpt-4o`, `gpt-4o-mini`
+- `o1`, `o1-mini`, `o1-pro`
+- `o3`, `o3-mini`
+- `o4`, `o4-mini`
+
+### Reasoning Models (o1/o3/o4)
+
+For o-series models, set reasoning effort:
+
+```yaml
+llm:
+  models:
+    - name: "o1"
+      reasoning_effort: "high"  # "low", "medium", "high"
+      weight: 1.0
+  temperature: 1.0  # o-series uses fixed temperature
+```
+
+## Google Gemini
+
+### Setup
+
+```bash
+export GEMINI_API_KEY="AIza..."
+# or
+export GOOGLE_API_KEY="AIza..."
+```
+
+### Configuration
+
+<CodeGroup>
+
+```yaml Config File
+llm:
+  models:
+    - name: "gemini/gemini-3-pro"
+      weight: 1.0
+  api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+```bash CLI
+skydiscover-run init.py eval.py -m gemini/gemini-3-pro
+```
+
+```python Python API
+result = run_discovery(
+    evaluator="eval.py",
+    model="gemini/gemini-3-pro",
+    iterations=50,
+)
+```
+
+</CodeGroup>
+
+### Supported Models
+
+- `gemini/gemini-3-pro` (Gemini 3.0 Pro)
+- `gemini/gemini-3-flash` (Gemini 3.0 Flash)
+- `gemini/gemini-2.0-flash-exp`
+
+<Note>
+The `gemini/` prefix is required for auto-detection. SkyDiscover strips it before sending to the API.
+</Note>
+
+## Anthropic Claude
+
+### Setup
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+### Configuration
+
+<CodeGroup>
+
+```yaml Config File
+llm:
+  models:
+    - name: "claude-3-7-sonnet"
+      weight: 1.0
+  api_base: "https://api.anthropic.com/v1/"
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+```bash CLI
+skydiscover-run init.py eval.py -m claude-3-7-sonnet
+```
+
+```python Python API
+result = run_discovery(
+    evaluator="eval.py",
+    model="claude-3-7-sonnet",
+    iterations=50,
+)
+```
+
+</CodeGroup>
+
+### Supported Models
+
+- `claude-3-7-sonnet`
+- `claude-3-5-sonnet`
+- `claude-4-opus` (when available)
+
+## DeepSeek
+
+### Setup
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."
+```
+
+### Configuration
+
+<CodeGroup>
+
+```yaml Config File
+llm:
+  models:
+    - name: "deepseek-chat"
+      weight: 1.0
+  api_base: "https://api.deepseek.com/v1"
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+```bash CLI
+skydiscover-run init.py eval.py -m deepseek-chat
+```
+
+</CodeGroup>
+
+### Supported Models
+
+- `deepseek-chat` (DeepSeek-V3)
+- `deepseek-coder`
+
+## Mistral
+
+### Setup
+
+```bash
+export MISTRAL_API_KEY="..."
+```
+
+### Configuration
+
+```yaml
+llm:
+  models:
+    - name: "mistral-large"
+      weight: 1.0
+  api_base: "https://api.mistral.ai/v1"
+```
+
+## Azure OpenAI
+
+### Setup
+
+```bash
+export AZURE_API_KEY="..."
+export AZURE_API_BASE="https://your-resource.openai.azure.com"
+```
+
+### Configuration
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"  # Your deployment name
+      api_base: "https://your-resource.openai.azure.com"
+      api_key: ${AZURE_API_KEY}
+      weight: 1.0
+```
+
+## Local Models
+
+### Ollama
+
+<Steps>
+  <Step title="Install Ollama">
+    ```bash
+    curl -fsSL https://ollama.com/install.sh | sh
+    ```
+  </Step>
+  
+  <Step title="Pull a Model">
+    ```bash
+    ollama pull qwen2.5-coder:32b
+    ```
+  </Step>
+  
+  <Step title="Configure SkyDiscover">
+    ```yaml
+    llm:
+      models:
+        - name: "qwen2.5-coder:32b"
+          weight: 1.0
+      api_base: "http://localhost:11434/v1"
+      api_key: "ollama"  # Dummy key
+    ```
+    
+    Or via CLI:
+    ```bash
+    skydiscover-run init.py eval.py \
+      --api-base http://localhost:11434/v1 \
+      -m qwen2.5-coder:32b
+    ```
+  </Step>
+</Steps>
+
+### vLLM
+
+<Steps>
+  <Step title="Install vLLM">
+    ```bash
+    pip install vllm
+    ```
+  </Step>
+  
+  <Step title="Start vLLM Server">
+    ```bash
+    vllm serve deepseek-ai/DeepSeek-Coder-V2-Instruct \
+      --host 0.0.0.0 \
+      --port 8000 \
+      --tensor-parallel-size 4
+    ```
+  </Step>
+  
+  <Step title="Configure SkyDiscover">
+    ```yaml
+    llm:
+      models:
+        - name: "deepseek-ai/DeepSeek-Coder-V2-Instruct"
+          weight: 1.0
+      api_base: "http://localhost:8000/v1"
+      api_key: "EMPTY"  # vLLM doesn't require auth by default
+    ```
+  </Step>
+</Steps>
+
+### LM Studio
+
+<Steps>
+  <Step title="Install LM Studio">
+    Download from [lmstudio.ai](https://lmstudio.ai/)
+  </Step>
+  
+  <Step title="Load a Model">
+    Search and download `Qwen/Qwen2.5-Coder-32B-Instruct-GGUF`
+  </Step>
+  
+  <Step title="Start Local Server">
+    In LM Studio: `Local Server` → `Start Server` (default port 1234)
+  </Step>
+  
+  <Step title="Configure SkyDiscover">
+    ```bash
+    skydiscover-run init.py eval.py \
+      --api-base http://localhost:1234/v1 \
+      -m qwen2.5-coder-32b
+    ```
+  </Step>
+</Steps>
+
+## Multiple Providers
+
+Mix and match providers in a single run:
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.4
+      api_base: "https://api.openai.com/v1"
+      api_key: ${OPENAI_API_KEY}
+    
+    - name: "gemini/gemini-3-pro"
+      weight: 0.3
+      api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      api_key: ${GEMINI_API_KEY}
+    
+    - name: "claude-3-7-sonnet"
+      weight: 0.2
+      api_base: "https://api.anthropic.com/v1/"
+      api_key: ${ANTHROPIC_API_KEY}
+    
+    - name: "qwen2.5-coder:32b"
+      weight: 0.1
+      api_base: "http://localhost:11434/v1"
+      api_key: "ollama"
+```
+
+SkyDiscover samples models proportionally to their weights.
+
+## Model-Specific Settings
+
+### Per-Model Parameters
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.5
+      temperature: 0.8      # Higher creativity
+      max_tokens: 40000
+    
+    - name: "o1"
+      weight: 0.5
+      temperature: 1.0      # Fixed for o-series
+      reasoning_effort: "high"
+      max_tokens: 32000
+  
+  # Defaults for unspecified parameters
+  temperature: 0.7
+  max_tokens: 32000
+  timeout: 600
+```
+
+### Custom Client Initialization
+
+For advanced use cases, pass a custom LLM client:
+
+```python
+from skydiscover import run_discovery
+from skydiscover.config import Config, LLMModelConfig
+from openai import AsyncOpenAI
+
+def init_custom_client():
+    return AsyncOpenAI(
+        base_url="http://localhost:8000/v1",
+        api_key="custom-key",
+        timeout=600,
+    )
+
+config = Config()
+config.llm.models = [
+    LLMModelConfig(
+        name="custom-model",
+        init_client=init_custom_client,
+        weight=1.0,
+    )
+]
+
+result = run_discovery(
+    evaluator="eval.py",
+    config=config,
+    iterations=50,
+)
+```
+
+## Provider Auto-Detection
+
+SkyDiscover automatically detects providers from model names:
+
+| Model Name Pattern | Provider | API Base |
+|-------------------|----------|----------|
+| `gpt-*`, `o1*`, `o3*`, `o4*` | OpenAI | `https://api.openai.com/v1` |
+| `gemini-*`, `gemini/*` | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `claude-*` | Anthropic | `https://api.anthropic.com/v1/` |
+| `deepseek-*` | DeepSeek | `https://api.deepseek.com/v1` |
+| `mistral-*` | Mistral | `https://api.mistral.ai/v1` |
+| `command-*` | Cohere | `https://api.cohere.com/v1` |
+| Other | OpenAI | `https://api.openai.com/v1` |
+
+### Override Detection
+
+Use `provider/model` syntax or explicit `api_base`:
+
+```yaml
+llm:
+  models:
+    # Explicit provider prefix
+    - name: "gemini/gemini-3-pro"
+      weight: 1.0
+    
+    # Explicit api_base override
+    - name: "my-custom-model"
+      api_base: "http://localhost:8000/v1"
+      weight: 1.0
+```
+
+## API Key Priority
+
+SkyDiscover resolves API keys in this order:
+
+1. **Per-model config:**
+   ```yaml
+   llm:
+     models:
+       - name: "gpt-5"
+         api_key: "sk-..."
+   ```
+
+2. **Provider environment variable:**
+   ```bash
+   export GEMINI_API_KEY="AIza..."
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   export DEEPSEEK_API_KEY="sk-..."
+   ```
+
+3. **Generic OPENAI_API_KEY:**
+   ```bash
+   export OPENAI_API_KEY="sk-..."
+   ```
+
+<Tip>
+Always set provider-specific keys when using multiple providers to avoid auth errors.
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication Failed">
+    **Error:** `401 Unauthorized`
+    
+    **Fix:**
+    1. Check your API key is correct
+    2. Verify the key is exported: `echo $OPENAI_API_KEY`
+    3. Ensure provider-specific key is set (e.g., `GEMINI_API_KEY` for Gemini)
+    4. Try hardcoding the key in config temporarily to isolate the issue
+  </Accordion>
+  
+  <Accordion title="Connection Refused (Local Models)">
+    **Error:** `Connection refused` or `Failed to connect`
+    
+    **Fix:**
+    1. Check server is running: `curl http://localhost:11434/v1/models`
+    2. Verify port matches config
+    3. For Ollama: `ollama serve` should show "Listening on 127.0.0.1:11434"
+    4. For vLLM: Check logs for startup errors
+  </Accordion>
+  
+  <Accordion title="Model Not Found">
+    **Error:** `The model 'xyz' does not exist`
+    
+    **Fix:**
+    1. For Ollama: `ollama list` to see available models
+    2. For cloud providers: Check spelling and model availability
+    3. Verify provider prefix: `gemini/gemini-3-pro` not just `gemini-3-pro`
+  </Accordion>
+  
+  <Accordion title="Rate Limit Exceeded">
+    **Error:** `429 Too Many Requests`
+    
+    **Fix:**
+    1. Reduce `max_parallel_iterations` in config
+    2. Add retry delay: `retry_delay: 10`
+    3. Use multiple API keys with separate model entries
+    4. Switch to local models for unlimited requests
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Environment Variables" icon="shield">
+    Never commit API keys. Use env vars or `.env` files.
+    
+    ```bash
+    # .env
+    OPENAI_API_KEY=sk-...
+    GEMINI_API_KEY=AIza...
+    ```
+  </Card>
+  
+  <Card title="Mix Local and Cloud" icon="cloud">
+    Use cheap local models for exploration, cloud models for exploitation.
+    
+    ```yaml
+    models:
+      - name: "qwen2.5-coder:32b"
+        weight: 0.7  # Exploration
+      - name: "gpt-5"
+        weight: 0.3  # Exploitation
+    ```
+  </Card>
+  
+  <Card title="Set Timeouts" icon="clock">
+    Increase timeout for large models or slow servers.
+    
+    ```yaml
+    llm:
+      timeout: 1200  # 20 minutes
+    ```
+  </Card>
+  
+  <Card title="Monitor Costs" icon="dollar-sign">
+    Use `gpt-4o-mini` or local models during development.
+    
+    ```yaml
+    models:
+      - name: "gpt-4o-mini"  # $0.15/M tokens
+        weight: 1.0
+    ```
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Full LLM configuration reference
+  </Card>
+  
+  <Card title="Running Discovery" icon="rocket" href="/guides/running-discovery">
+    Start your first discovery run
+  </Card>
+</CardGroup>

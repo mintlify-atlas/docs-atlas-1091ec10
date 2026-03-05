@@ -1,0 +1,538 @@
+---
+title: Benchmarks
+description: 200+ optimization tasks spanning math, systems, algorithms, and reasoning
+---
+
+## Overview
+
+SkyDiscover includes comprehensive benchmarks across multiple domains. Use these to:
+
+- **Test search algorithms** on real problems
+- **Learn evaluator patterns** from working examples
+- **Benchmark LLM performance** on hard optimization tasks
+- **Reproduce published results** from research papers
+
+<CardGroup cols={3}>
+  <Card title="Math" icon="calculator">
+    14 tasks
+  </Card>
+  <Card title="Systems" icon="server">
+    5 tasks (ADRS)
+  </Card>
+  <Card title="GPU Kernels" icon="microchip">
+    4 tasks (Triton)
+  </Card>
+  <Card title="Algorithms" icon="code">
+    172 tasks (Frontier-CS)
+  </Card>
+  <Card title="Reasoning" icon="brain">
+    ARC-AGI tasks
+  </Card>
+  <Card title="Creative" icon="palette">
+    Image generation
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+### Installation
+
+```bash
+# Base installation
+uv sync
+
+# Add domain-specific dependencies
+uv sync --extra math                # Math benchmarks
+uv sync --extra adrs                # Systems benchmarks
+uv sync --extra external            # OpenEvolve/GEPA backends
+uv sync --extra frontier-cs         # Competitive programming
+uv sync --extra prompt-optimization # Prompt evolution
+```
+
+### Running a Benchmark
+
+```bash
+export OPENAI_API_KEY="sk-..."
+
+# Run circle packing benchmark
+uv run skydiscover-run \
+  benchmarks/math/circle_packing/initial_program.py \
+  benchmarks/math/circle_packing/evaluator.py \
+  -c benchmarks/math/circle_packing/config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+## Benchmark Catalog
+
+### Math Benchmarks
+
+<AccordionGroup>
+  <Accordion title="Circle Packing" icon="circle">
+    **Path:** `benchmarks/math/circle_packing/`
+    
+    **Problem:** Pack 26 circles in a unit square to maximize the sum of radii.
+    
+    **Target:** 2.635 (AlphaEvolve result)
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/math/circle_packing/initial_program.py \
+      benchmarks/math/circle_packing/evaluator.py \
+      -c benchmarks/math/circle_packing/config.yaml \
+      -s adaevolve -i 100
+    ```
+    
+    **Evaluator excerpt:**
+    ```python
+    def evaluate(program_path):
+        centers, radii, sum_radii = run_packing()
+        valid = validate_packing(centers, radii)
+        target_ratio = sum_radii / 2.635 if valid else 0.0
+        return {"combined_score": target_ratio, "sum_radii": sum_radii}
+    ```
+  </Accordion>
+  
+  <Accordion title="Heilbronn Triangle" icon="triangle">
+    **Path:** `benchmarks/math/heilbronn_triangle/`
+    
+    **Problem:** Place N points in a unit square to maximize the minimum triangle area.
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/math/heilbronn_triangle/initial_program.py \
+      benchmarks/math/heilbronn_triangle/evaluator.py \
+      -s adaevolve -i 100
+    ```
+  </Accordion>
+  
+  <Accordion title="Erdős Minimum Overlap" icon="diagram-venn">
+    **Path:** `benchmarks/math/erdos_min_overlap/`
+    
+    **Problem:** Construct sets with minimal overlap satisfying Erdős constraints.
+  </Accordion>
+  
+  <Accordion title="Autocorrelation Inequalities" icon="wave-sine">
+    **Paths:**
+    - `benchmarks/math/first_autocorr_ineq/`
+    - `benchmarks/math/second_autocorr_ineq/`
+    - `benchmarks/math/third_autocorr_ineq/`
+    
+    **Problem:** Find binary sequences minimizing autocorrelation merit factor.
+  </Accordion>
+  
+  <Accordion title="Other Math Tasks" icon="function">
+    - **Hexagon Packing:** `benchmarks/math/hexagon_packing/`
+    - **Heilbronn Convex:** `benchmarks/math/heilbronn_convex/`
+    - **Signal Processing:** `benchmarks/math/signal_processing/`
+    - **Matrix Multiplication:** `benchmarks/math/matmul/`
+    - **Min-Max Distance:** `benchmarks/math/minimizing_max_min_dist/`
+  </Accordion>
+</AccordionGroup>
+
+### ADRS (Systems Benchmarks)
+
+<AccordionGroup>
+  <Accordion title="CloudCast (Cloud Scheduling)" icon="cloud">
+    **Path:** `benchmarks/ADRS/cloudcast/`
+    
+    **Problem:** Schedule cloud VMs to minimize cost while meeting performance targets.
+    
+    **Dependencies:**
+    ```bash
+    uv sync --extra adrs
+    ```
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/ADRS/cloudcast/initial_program.py \
+      benchmarks/ADRS/cloudcast/evaluator.py \
+      -s adaevolve -i 50
+    ```
+  </Accordion>
+  
+  <Accordion title="EPLB (MoE Load Balancing)" icon="balance-scale">
+    **Path:** `benchmarks/ADRS/eplb/`
+    
+    **Problem:** Balance load across mixture-of-experts model to minimize latency.
+  </Accordion>
+  
+  <Accordion title="Prism (Model Placement)" icon="server">
+    **Path:** `benchmarks/ADRS/prism/`
+    
+    **Problem:** Place ML models on heterogeneous devices for optimal throughput.
+  </Accordion>
+  
+  <Accordion title="Transaction Scheduling" icon="database">
+    **Path:** `benchmarks/ADRS/txn_scheduling/`
+    
+    **Problem:** Schedule database transactions to maximize concurrency.
+  </Accordion>
+  
+  <Accordion title="LLM-SQL (Query Optimization)" icon="database">
+    **Path:** `benchmarks/ADRS/llm_sql/`
+    
+    **Problem:** Optimize SQL queries for LLM-powered database systems.
+  </Accordion>
+</AccordionGroup>
+
+### GPU Kernels
+
+<AccordionGroup>
+  <Accordion title="Triton Kernel Optimization" icon="microchip">
+    **Paths:**
+    - `benchmarks/gpu_mode/vecadd/` - Vector addition
+    - `benchmarks/gpu_mode/grayscale/` - Image grayscale conversion
+    - `benchmarks/gpu_mode/trimul/` - Matrix multiplication
+    - `benchmarks/gpu_mode/mla_decode/` - Multi-head latent attention decode
+    
+    **Problem:** Optimize Triton GPU kernels for performance.
+    
+    **Requirements:** CUDA-capable GPU
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/gpu_mode/vecadd/initial_program.py \
+      benchmarks/gpu_mode/vecadd/evaluator.py \
+      -s adaevolve -i 50
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Competitive Programming
+
+<AccordionGroup>
+  <Accordion title="Frontier-CS Eval (172 Problems)" icon="trophy">
+    **Path:** `benchmarks/frontier-cs-eval/`
+    
+    **Problem:** Solve competitive programming problems (ICPC, Codeforces, AtCoder).
+    
+    **Setup:**
+    ```bash
+    uv sync --extra frontier-cs
+    cd benchmarks/frontier-cs-eval
+    python run_all_frontiercs.py --model gpt-5 --search adaevolve
+    ```
+    
+    **Features:**
+    - Docker-based judge for secure execution
+    - 172 problems from Frontier-CS benchmark
+    - Automated testing and scoring
+  </Accordion>
+  
+  <Accordion title="ALE-Bench (10 Problems)" icon="code">
+    **Path:** `benchmarks/ale_bench/`
+    
+    **Problem:** AtCoder Heuristic Contest problems (C++).
+    
+    **Examples:**
+    - `ale_bench/ale-bench-lite-problems/ahc046/`
+    - `ale_bench/ale-bench-lite-problems/ahc039/`
+    - And 8 more...
+  </Accordion>
+</AccordionGroup>
+
+### Reasoning
+
+<AccordionGroup>
+  <Accordion title="ARC-AGI" icon="brain">
+    **Path:** `benchmarks/arc_benchmark/`
+    
+    **Problem:** Abstract reasoning tasks (visual pattern completion).
+    
+    **Description:** Generate Python code to solve ARC-AGI visual reasoning puzzles.
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/arc_benchmark/evaluator.py \
+      -c benchmarks/arc_benchmark/config.yaml \
+      -s adaevolve -i 100
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Creative Tasks
+
+<AccordionGroup>
+  <Accordion title="AI Image Generation" icon="image">
+    **Path:** `benchmarks/image_gen/sky_festival/`
+    
+    **Problem:** Evolve DALL-E/Stable Diffusion prompts for a "sky festival" image.
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/image_gen/sky_festival/initial_prompt.txt \
+      benchmarks/image_gen/sky_festival/evaluator.py \
+      -c benchmarks/image_gen/sky_festival/config_adaevolve.yaml \
+      -s adaevolve -i 50
+    ```
+    
+    **Note:** Requires image generation API credentials.
+  </Accordion>
+</AccordionGroup>
+
+### Prompt Optimization
+
+<AccordionGroup>
+  <Accordion title="HotPotQA" icon="message-question">
+    **Path:** `benchmarks/prompt_optimization/hotpot_qa/`
+    
+    **Problem:** Evolve natural-language prompts (not code) for question-answering.
+    
+    **Setup:**
+    ```bash
+    uv sync --extra prompt-optimization
+    ```
+    
+    **Run:**
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/prompt_optimization/hotpot_qa/initial_prompt.txt \
+      benchmarks/prompt_optimization/hotpot_qa/evaluator.py \
+      -c benchmarks/prompt_optimization/hotpot_qa/config.yaml \
+      -s adaevolve -i 50
+    ```
+    
+    **Config excerpt:**
+    ```yaml
+    language: text
+    diff_based_generation: false
+    file_suffix: ".txt"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Benchmark Structure
+
+Every benchmark follows this pattern:
+
+```
+<benchmark_name>/
+├── initial_program.py      # Starting solution (contains EVOLVE-BLOCK)
+├── evaluator.py           # Scoring function (returns combined_score)
+├── config.yaml            # System prompt + search/evaluator settings
+├── README.md              # Problem description and setup
+└── requirements.txt       # (optional) Additional dependencies
+```
+
+### EVOLVE-BLOCK Markers
+
+Mark the region for SkyDiscover to evolve:
+
+```python initial_program.py
+# EVOLVE-BLOCK-START
+def solve(input_data):
+    # LLM will improve this function
+    return simple_solution(input_data)
+# EVOLVE-BLOCK-END
+
+# Code outside the block remains unchanged
+def helper_function():
+    pass
+```
+
+<Note>
+For prompt optimization tasks (`.txt` files), the entire file is evolved — no markers needed.
+</Note>
+
+## Creating Your Own Benchmark
+
+<Steps>
+  <Step title="Write an Evaluator">
+    ```python evaluator.py
+    def evaluate(program_path: str) -> dict:
+        # Load and run the program
+        result = run_program(program_path)
+        
+        # Compute score
+        score = compute_score(result)
+        
+        return {
+            "combined_score": score,  # Required
+            "custom_metric": 0.95,    # Optional
+        }
+    ```
+  </Step>
+  
+  <Step title="(Optional) Create Initial Program">
+    ```python initial_program.py
+    # EVOLVE-BLOCK-START
+    def solve(input_data):
+        return naive_solution(input_data)
+    # EVOLVE-BLOCK-END
+    ```
+    
+    Or start from scratch by omitting this file.
+  </Step>
+  
+  <Step title="Write Config">
+    ```yaml config.yaml
+    max_iterations: 100
+    
+    llm:
+      models:
+        - name: "gpt-5"
+          weight: 1.0
+    
+    search:
+      type: "adaevolve"
+    
+    prompt:
+      system_message: |
+        You are an expert in [domain].
+        Improve the given function to maximize [objective].
+    
+    evaluator:
+      timeout: 360
+    ```
+  </Step>
+  
+  <Step title="Test Locally">
+    ```bash
+    uv run skydiscover-run \
+      initial_program.py \
+      evaluator.py \
+      -c config.yaml \
+      -s adaevolve \
+      -i 10
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+See [Writing Evaluators](/guides/writing-evaluators) for detailed guidance.
+</Tip>
+
+## Benchmark Best Practices
+
+<AccordionGroup>
+  <Accordion title="Normalize Scores">
+    Keep `combined_score` in [0, 1] range:
+    
+    ```python
+    BEST_KNOWN = 2.635
+    score = min(sum_radii / BEST_KNOWN, 1.0)
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Timeouts">
+    Prevent slow programs from blocking discovery:
+    
+    ```yaml
+    evaluator:
+      timeout: 60  # Kill after 60 seconds
+    ```
+  </Accordion>
+  
+  <Accordion title="Return Rich Metrics">
+    Log multiple metrics for analysis:
+    
+    ```python
+    return {
+        "combined_score": 0.87,
+        "accuracy": 0.92,
+        "speed": 1.3,
+        "memory": 512,
+        "validity": 1.0,
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Provide Good Initial Program">
+    A reasonable starting point helps algorithms converge faster:
+    
+    ```python
+    # Don't start with a no-op
+    def solve(x):
+        return x  # Too simple
+    
+    # Do provide a working baseline
+    def solve(x):
+        return simple_heuristic(x)  # Good starting point
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Reproducing Published Results
+
+### AlphaEvolve (Circle Packing)
+
+```bash
+uv run skydiscover-run \
+  benchmarks/math/circle_packing/initial_program.py \
+  benchmarks/math/circle_packing/evaluator.py \
+  -c benchmarks/math/circle_packing/config.yaml \
+  -s adaevolve \
+  -i 200 \
+  -m gpt-5
+```
+
+**Expected:** `combined_score ≥ 0.95` (≥ 2.50 / 2.635)
+
+### Frontier-CS Benchmark
+
+```bash
+cd benchmarks/frontier-cs-eval
+python run_all_frontiercs.py \
+  --model gpt-5 \
+  --search adaevolve \
+  --iterations 100
+```
+
+**Expected:** Solve 60-80% of problems depending on difficulty tier.
+
+## Performance Comparison
+
+Here are typical results across search algorithms (averaged over 10 math benchmarks):
+
+| Algorithm | Mean Score | Best Score | Runtime (min) |
+|-----------|-----------|-----------|---------------|
+| topk | 0.65 | 0.78 | 15 |
+| beam_search | 0.71 | 0.83 | 22 |
+| adaevolve | 0.82 | 0.91 | 35 |
+| evox | 0.79 | 0.89 | 40 |
+| gepa | 0.84 | 0.93 | 38 |
+| openevolve | 0.86 | 0.95 | 45 |
+
+<Note>
+Results vary by problem, model, and random seed. Run your own experiments!
+</Note>
+
+## Benchmark Categories Summary
+
+| Category | # Tasks | Avg Runtime | Dependencies |
+|----------|---------|-------------|-------------|
+| Math | 14 | 20-40 min | `--extra math` |
+| ADRS | 5 | 30-60 min | `--extra adrs` |
+| GPU | 4 | 10-30 min | CUDA GPU |
+| Frontier-CS | 172 | 5-20 min each | `--extra frontier-cs` |
+| ARC-AGI | Multiple | 40-80 min | Base install |
+| ALE-Bench | 10 | 30-60 min | C++ compiler |
+| Image Gen | 1 | 40-60 min | Image API |
+| Prompts | 1 | 20-40 min | `--extra prompt-optimization` |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Writing Evaluators" icon="flask" href="/guides/writing-evaluators">
+    Learn from benchmark evaluators
+  </Card>
+  
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Understand benchmark configs
+  </Card>
+  
+  <Card title="Running Discovery" icon="rocket" href="/guides/running-discovery">
+    Run your first benchmark
+  </Card>
+  
+  <Card title="GitHub Repository" icon="github" href="https://github.com/yourusername/skydiscover">
+    Browse all benchmarks on GitHub
+  </Card>
+</CardGroup>

@@ -1,0 +1,394 @@
+---
+title: Algorithm Design Examples
+description: Competitive programming problems from the Frontier-CS benchmark with 172 algorithmic challenges
+icon: "code"
+---
+
+The Frontier-CS benchmark contains 172 competitive programming problems that test algorithm design and optimization. SkyDiscover evolves C++ solutions that are evaluated using a Docker-based judge.
+
+## Overview
+
+Frontier-CS is a benchmark from Meta Research testing algorithmic problem-solving capabilities. Problems cover:
+
+- Graph algorithms (shortest paths, flows, matchings)
+- Dynamic programming
+- Greedy algorithms  
+- Data structures (trees, heaps, segment trees)
+- Computational geometry
+- Number theory
+- Combinatorics
+
+<Info>
+**Note:** Unlike Python-based benchmarks, Frontier-CS evolves C++ code. The evaluator compiles and tests solutions against hidden test cases.
+</Info>
+
+## Setup
+
+Frontier-CS requires Docker for the judge server:
+
+<Steps>
+  <Step title="Clone Frontier-CS">
+    ```bash
+    cd benchmarks/frontier-cs-eval
+    git clone https://github.com/FrontierCS/Frontier-CS.git
+    ```
+  </Step>
+  
+  <Step title="Start Judge Server">
+    ```bash
+    cd Frontier-CS/algorithmic
+    docker compose up -d
+    ```
+    
+    The judge will run on `http://localhost:8081`
+  </Step>
+  
+  <Step title="Install Dependencies">
+    ```bash
+    cd ../../..
+    uv sync --extra frontier-cs
+    ```
+  </Step>
+  
+  <Step title="Set API Key">
+    ```bash
+    export OPENAI_API_KEY="sk-..."
+    ```
+  </Step>
+</Steps>
+
+## Initial Program
+
+The seed program is a minimal C++ skeleton:
+
+<CodeGroup>
+```cpp initial_program.cpp
+#include <bits/stdc++.h>
+using namespace std;
+
+int main(){
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}
+```
+</CodeGroup>
+
+Evolution will replace this with a complete solution for the specified problem.
+
+## Evaluator
+
+The evaluator submits C++ code to the Frontier-CS judge:
+
+<CodeGroup>
+```python evaluator.py
+import os
+import random
+from pathlib import Path
+from frontier_cs.single_evaluator import SingleEvaluator
+from frontier_cs.runner.base import EvaluationStatus
+
+# Support multiple judge servers for load balancing
+DEFAULT_JUDGE_URL = "http://localhost:8081"
+JUDGE_URLS = os.environ.get("JUDGE_URLS", DEFAULT_JUDGE_URL).split(",")
+
+def get_judge_url():
+    """Random selection for load balancing"""
+    return random.choice(JUDGE_URLS)
+
+def evaluate(program_path: str, problem_id: str = None):
+    """
+    Evaluate C++ solution for a Frontier-CS problem.
+    
+    Args:
+        program_path: Path to C++ solution file
+        problem_id: Problem ID (0-171) or from FRONTIER_CS_PROBLEM env var
+    
+    Returns:
+        dict with combined_score and evaluation metadata
+    """
+    # Get problem ID from parameter or environment
+    if problem_id is None:
+        problem_id = os.environ.get('FRONTIER_CS_PROBLEM', '0')
+    
+    # Initialize judge
+    evaluator = SingleEvaluator(
+        backend="docker",
+        judge_url=get_judge_url(),
+        register_cleanup=False
+    )
+    
+    # Read solution code
+    solution_path = Path(program_path)
+    if not solution_path.exists():
+        return {
+            "combined_score": 0.0,
+            "status": "error",
+            "message": f"File not found: {program_path}"
+        }
+    
+    code = solution_path.read_text()
+    
+    # Submit to judge
+    result = evaluator.evaluate(
+        track="algorithmic",
+        problem_id=problem_id,
+        code=code,
+        backend="docker"
+    )
+    
+    # Process result
+    if result.status == EvaluationStatus.SUCCESS:
+        score = result.score
+        # Use unbounded score (can exceed 100 if beating reference)
+        score_unbounded = result.metadata.get(
+            'scoreUnbounded', score
+        ) if result.metadata else score
+        
+        return {
+            "combined_score": float(score),
+            "score_unbounded": score_unbounded,
+            "status": "success",
+            "problem_id": problem_id,
+            "duration_seconds": result.duration_seconds
+        }
+    
+    elif result.status == EvaluationStatus.TIMEOUT:
+        return {
+            "combined_score": 0.0,
+            "status": "timeout",
+            "message": result.message
+        }
+    
+    else:  # ERROR
+        return {
+            "combined_score": 0.0,
+            "status": "error",
+            "message": result.message,
+            "logs": result.logs
+        }
+```
+</CodeGroup>
+
+## Running Single Problem
+
+Specify which problem to solve with the `FRONTIER_CS_PROBLEM` environment variable:
+
+```bash
+cd benchmarks/frontier-cs-eval
+
+FRONTIER_CS_PROBLEM=0 uv run skydiscover-run \
+  initial_program.cpp \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 50
+```
+
+<Tip>
+**Problem IDs range from 0 to 171.** Start with simpler problems (lower IDs) to test your setup.
+</Tip>
+
+## Running All Problems in Parallel
+
+The benchmark includes a script to evolve solutions for all 172 problems:
+
+```bash
+uv run python run_all_frontiercs.py \
+  --search adaevolve \
+  --iterations 50 \
+  --workers 6
+```
+
+<CodeGroup>
+```python run_all_frontiercs.py (excerpt)
+#!/usr/bin/env python3
+import argparse
+import subprocess
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+def run_single_problem(problem_id, search_algo, iterations):
+    """Run evolution for a single problem"""
+    cmd = [
+        "skydiscover-run",
+        "initial_program.cpp",
+        "evaluator.py",
+        "-c", "config.yaml",
+        "-s", search_algo,
+        "-i", str(iterations)
+    ]
+    
+    env = os.environ.copy()
+    env["FRONTIER_CS_PROBLEM"] = str(problem_id)
+    
+    result = subprocess.run(cmd, env=env, capture_output=True)
+    return problem_id, result.returncode
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--search", default="adaevolve")
+    parser.add_argument("--iterations", type=int, default=50)
+    parser.add_argument("--workers", type=int, default=6)
+    args = parser.parse_args()
+    
+    # Run all 172 problems in parallel
+    with ProcessPoolExecutor(max_workers=args.workers) as executor:
+        futures = [
+            executor.submit(
+                run_single_problem, 
+                problem_id, 
+                args.search, 
+                args.iterations
+            )
+            for problem_id in range(172)
+        ]
+        
+        for future in futures:
+            problem_id, status = future.result()
+            print(f"Problem {problem_id}: {'✓' if status == 0 else '✗'}")
+```
+</CodeGroup>
+
+## Evaluating Best Programs
+
+After evolution, re-evaluate the best solutions on test sets:
+
+```bash
+uv run python run_best_programs_frontiercs.py
+```
+
+This reads the best program from each problem's evolution directory and runs it through the judge again.
+
+## Analyzing Results
+
+Combine training and testing scores into CSV:
+
+```bash
+uv run python combine_results.py
+```
+
+Generate plots and statistics:
+
+```bash
+uv run python analyze_results.py
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | (required) | Your API key |
+| `FRONTIER_CS_PROBLEM` | `0` | Problem ID to evolve (0-171) |
+| `JUDGE_URLS` | `http://localhost:8081` | Comma-separated judge URLs for load balancing |
+
+<Note>
+**Load Balancing:** If running many problems in parallel, you can start multiple judge servers and specify all URLs:
+```bash
+export JUDGE_URLS="http://localhost:8081,http://localhost:8082,http://localhost:8083"
+```
+</Note>
+
+## Configuration
+
+The `config.yaml` specifies C++ as the language:
+
+<CodeGroup>
+```yaml config.yaml
+system_prompt: |
+  You are solving a competitive programming problem.
+  Write efficient C++ code that passes all test cases.
+  
+language: cpp
+diff_based_generation: true
+
+search_algorithm:
+  population_size: 20
+  tournament_size: 3
+```
+</CodeGroup>
+
+## Tips for Algorithm Benchmarks
+
+<CardGroup cols={2}>
+  <Card title="Start Small" icon="seedling">
+    Test on a few problems first. Some are significantly harder than others.
+  </Card>
+  
+  <Card title="Use Load Balancing" icon="scale-balanced">
+    Run multiple judge servers if evolving many problems in parallel.
+  </Card>
+  
+  <Card title="Check Logs" icon="file-lines">
+    Judge logs show compilation errors and runtime failures.
+  </Card>
+  
+  <Card title="Unbounded Scores" icon="chart-line">
+    Solutions can score >100 if they beat the reference implementation.
+  </Card>
+</CardGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Judge server not responding" icon="circle-exclamation">
+    Verify Docker is running:
+    ```bash
+    docker ps | grep judge
+    ```
+    
+    Restart if needed:
+    ```bash
+    cd Frontier-CS/algorithmic
+    docker compose restart
+    ```
+  </Accordion>
+  
+  <Accordion title="Compilation errors" icon="code">
+    Check the judge logs for detailed error messages:
+    ```bash
+    docker compose logs -f
+    ```
+    
+    The evaluator returns logs in the result dictionary.
+  </Accordion>
+  
+  <Accordion title="Timeouts" icon="clock">
+    Solutions must complete within the judge's time limit. Optimize algorithmic complexity.
+  </Accordion>
+  
+  <Accordion title="Missing Frontier-CS" icon="folder-open">
+    Ensure you cloned the repository:
+    ```bash
+    cd benchmarks/frontier-cs-eval
+    git clone https://github.com/FrontierCS/Frontier-CS.git
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Supported Search Algorithms
+
+- `adaevolve` (recommended)
+- `evox`
+- `openevolve`
+- `gepa`
+- `shinkaevolve`
+
+All require the `--extra external` installation:
+
+```bash
+uv sync --extra external
+```
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Math Examples" icon="function" href="/examples/math-optimization">
+    Explore math benchmarks
+  </Card>
+  <Card title="Systems Examples" icon="server" href="/examples/systems-optimization">
+    See systems optimization
+  </Card>
+  <Card title="Create Custom" icon="plus" href="/examples/custom-problems">
+    Build your own benchmark
+  </Card>
+</CardGroup>

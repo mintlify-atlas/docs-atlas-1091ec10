@@ -1,0 +1,315 @@
+---
+title: 'Beam Search'
+description: 'Breadth-first expansion maintaining a beam of top solution candidates'
+icon: 'radar'
+---
+
+## Overview
+
+Beam Search maintains a fixed-width "beam" of the most promising solution candidates, exploring multiple paths in parallel while pruning less promising directions. It balances breadth (exploring alternatives) with depth (refining solutions).
+
+<CardGroup cols={2}>
+  <Card title="Parallel Paths" icon="code-branch">
+    Explores multiple solution directions simultaneously
+  </Card>
+  <Card title="Controlled Breadth" icon="sliders">
+    Beam width limits computational cost while maintaining diversity
+  </Card>
+  <Card title="Flexible Selection" icon="shuffle">
+    Multiple strategies for choosing which beam member to expand
+  </Card>
+  <Card title="Depth Tracking" icon="chart-line">
+    Monitors solution tree depth for analysis
+  </Card>
+</CardGroup>
+
+## How It Works
+
+### Beam Maintenance
+
+Beam Search maintains the top `beam_width` programs at all times:
+
+1. **Initialization**: Start with initial program(s) in the beam
+2. **Selection**: Pick a program from the beam to expand
+3. **Generation**: Create a child program
+4. **Evaluation**: Score the child
+5. **Beam Update**: Add child to beam, prune to maintain width
+6. **Repeat**: Continue expanding beam members
+
+### Selection Strategies
+
+Beam Search offers four strategies for selecting which beam member to expand:
+
+<Tabs>
+  <Tab title="Best">
+    Always expand the highest-scoring program in the beam.
+    
+    ```yaml
+    beam_selection_strategy: "best"
+    ```
+    
+    **Use when**: You want greedy best-first search with backup options.
+  </Tab>
+  
+  <Tab title="Stochastic">
+    Sample weighted by score with temperature control.
+    
+    ```yaml
+    beam_selection_strategy: "stochastic"
+    beam_temperature: 1.0  # Higher = more uniform
+    ```
+    
+    **Use when**: You want exploration but biased toward better solutions.
+  </Tab>
+  
+  <Tab title="Round Robin">
+    Cycle through beam members, ensuring all get expanded equally.
+    
+    ```yaml
+    beam_selection_strategy: "round_robin"
+    ```
+    
+    **Use when**: You want to explore all beam members uniformly.
+  </Tab>
+  
+  <Tab title="Diversity Weighted">
+    Balance score and diversity from recently expanded programs.
+    
+    ```yaml
+    beam_selection_strategy: "diversity_weighted"
+    beam_diversity_weight: 0.3  # Weight for diversity
+    ```
+    
+    **Use when**: You want to avoid getting stuck in similar solutions (default).
+  </Tab>
+</Tabs>
+
+### Beam Pruning
+
+When the beam exceeds `beam_width`, it's pruned to the top programs:
+
+- **Pure fitness**: Keep highest-scoring programs
+- **Diversity-aware**: Balance fitness and code diversity (if `beam_diversity_weight > 0`)
+
+## Configuration
+
+### Basic Usage
+
+```bash
+skydiscover-run initial_program.py evaluator.py \
+  --search beam_search \
+  --iterations 100
+```
+
+### Configuration File
+
+```yaml
+search:
+  type: beam_search
+  database:
+    # Beam configuration
+    beam_width: 5                           # Number of programs in beam
+    beam_selection_strategy: "diversity_weighted"
+    
+    # Diversity settings
+    beam_diversity_weight: 0.3              # 0 = pure fitness, 1 = pure diversity
+    
+    # Stochastic sampling (when strategy = "stochastic")
+    beam_temperature: 1.0                   # Temperature for score-weighted sampling
+    
+    # Optional depth penalty
+    beam_depth_penalty: 0.0                 # Penalize deep programs (0 = no penalty)
+```
+
+## Configuration Options
+
+<ParamField path="beam_width" type="int" default="5">
+  Number of candidate programs to keep in the beam. Higher = more exploration but slower.
+</ParamField>
+
+<ParamField path="beam_selection_strategy" type="string" default="diversity_weighted">
+  How to select which beam member to expand next. Options:
+  - `"best"`: Always pick highest scoring
+  - `"stochastic"`: Weighted random by score
+  - `"round_robin"`: Cycle through beam members
+  - `"diversity_weighted"`: Balance score and diversity
+</ParamField>
+
+<ParamField path="beam_diversity_weight" type="float" default="0.3">
+  Weight for diversity in selection (0-1). Only used with `diversity_weighted` strategy.
+  - 0 = pure fitness-based selection
+  - 1 = pure diversity-based selection
+</ParamField>
+
+<ParamField path="beam_temperature" type="float" default="1.0">
+  Temperature for stochastic sampling. Only used with `stochastic` strategy.
+  - Lower = more greedy (favor best programs)
+  - Higher = more uniform (explore beam evenly)
+</ParamField>
+
+<ParamField path="beam_depth_penalty" type="float" default="0.0">
+  Exponential penalty for deep programs: `score * exp(-penalty * depth)`.
+  Use to encourage shorter solution paths.
+</ParamField>
+
+## When to Use Beam Search
+
+<AccordionGroup>
+  <Accordion title="Best For" icon="check">
+    - Problems where multiple solution approaches might work
+    - Medium-length runs (50-200 iterations)
+    - When you want controlled exploration without full population management
+    - Problems with discrete decision points (like algorithm design)
+  </Accordion>
+  
+  <Accordion title="Avoid When" icon="xmark">
+    - Very short runs (< 20 iterations) - beam won't fill
+    - Problems requiring deep refinement of single solution
+    - Need for maximum diversity (use AdaEvolve islands instead)
+  </Accordion>
+</AccordionGroup>
+
+## Example
+
+### Algorithm Optimization
+
+Beam search works well for problems with discrete choices:
+
+```python
+# evaluator.py - sorting algorithm optimization
+def evaluate(program_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("solution", program_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    
+    # Test on various inputs
+    scores = []
+    for size in [10, 100, 1000, 10000]:
+        data = generate_random_data(size)
+        time, correct = benchmark(module.sort, data)
+        scores.append(1.0 / time if correct else 0)
+    
+    return {"combined_score": sum(scores) / len(scores)}
+```
+
+```yaml
+# config.yaml
+search:
+  type: beam_search
+  database:
+    beam_width: 8                    # Try 8 different algorithms
+    beam_selection_strategy: "diversity_weighted"
+    beam_diversity_weight: 0.4       # Encourage diverse approaches
+```
+
+```bash
+# Run beam search
+skydiscover-run initial_sort.py evaluator.py \
+  --config config.yaml \
+  --iterations 100
+```
+
+## Monitoring Beam Search
+
+### Statistics
+
+Access beam statistics via the database:
+
+```python
+stats = database.get_search_stats()
+print(f"Beam size: {stats['beam_size']}")
+print(f"Max depth: {stats['max_depth_reached']}")
+print(f"Expansions: {stats['total_expansions']}")
+print(f"Unexpanded: {stats['unexpanded_in_beam']}")
+```
+
+### Beam Contents
+
+```python
+# Get current beam programs
+beam_programs = database.get_beam_programs()  # Sorted by score
+
+for i, prog in enumerate(beam_programs):
+    print(f"{i+1}. Score: {prog.metrics['combined_score']:.4f}")
+    print(f"   Depth: {database.depth[prog.id]}")
+```
+
+### Unexpanded Programs
+
+```python
+# Programs in beam that haven't been expanded yet
+unexpanded = database.get_unexpanded_beam()
+print(f"{len(unexpanded)} programs awaiting expansion")
+```
+
+## Advanced Usage
+
+### Dynamic Beam Width
+
+Adjust beam width during the run:
+
+```python
+from skydiscover.search.beam_search import BeamSearchDatabase
+
+class AdaptiveBeamDatabase(BeamSearchDatabase):
+    def add(self, program, iteration=None, **kwargs):
+        # Expand beam when finding improvements
+        if self.best_program_id and program.id == self.best_program_id:
+            self.beam_width = min(self.beam_width + 1, 10)
+        
+        return super().add(program, iteration, **kwargs)
+```
+
+### Restart Strategy
+
+Periodically inject new starting points:
+
+```python
+class RestartBeamDatabase(BeamSearchDatabase):
+    def sample(self, num_context_programs=4, **kwargs):
+        # Every 20 iterations, restart from best
+        if len(self.programs) % 20 == 0:
+            self.beam = {self.best_program_id}
+            self.expanded.clear()
+        
+        return super().sample(num_context_programs, **kwargs)
+```
+
+## Comparison with Other Algorithms
+
+| Feature | Beam Search | Top-K | Best-of-N | AdaEvolve |
+|---------|-------------|-------|-----------|----------|
+| Parallel paths | Yes (beam_width) | No | Limited | Yes (islands) |
+| Exploration | Configurable | None | None | Adaptive |
+| Depth tracking | Yes | No | No | No |
+| Complexity | Medium | Low | Low | High |
+| Best for | Discrete choices | Refinement | Refinement | Complex landscapes |
+
+## Tips for Best Results
+
+<Steps>
+  <Step title="Start with diversity_weighted">
+    The default strategy balances exploration and exploitation well for most problems.
+  </Step>
+  
+  <Step title="Tune beam width to iteration budget">
+    - 20-50 iterations: beam_width = 3-5
+    - 50-150 iterations: beam_width = 5-10
+    - 150+ iterations: beam_width = 10-20
+  </Step>
+  
+  <Step title="Use diversity for discrete problems">
+    Increase `beam_diversity_weight` (0.4-0.6) when solutions have distinct approaches.
+  </Step>
+  
+  <Step title="Monitor unexpanded programs">
+    If many beam members remain unexpanded, consider round_robin strategy.
+  </Step>
+</Steps>
+
+## Related Algorithms
+
+- [Top-K](/algorithms/topk) - Single best path (beam_width = 1)
+- [Best-of-N](/algorithms/best-of-n) - N attempts at same parent
+- [AdaEvolve](/algorithms/adaevolve) - Multiple islands with migration

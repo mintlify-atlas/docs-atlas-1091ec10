@@ -1,0 +1,671 @@
+---
+title: Evaluators
+description: Writing effective evaluation functions to guide discovery
+---
+
+The evaluator is the **only** problem-specific code you write. It defines the optimization objective and provides feedback to guide the LLM.
+
+## Basic Structure
+
+An evaluator is a Python file with an `evaluate()` function:
+
+```python
+def evaluate(program_path: str) -> dict:
+    """
+    Score a candidate program.
+
+    Args:
+        program_path: Path to the generated program file
+
+    Returns:
+        Dictionary with metrics and optional artifacts
+    """
+    # 1. Load and run the program
+    # 2. Measure performance
+    # 3. Return metrics
+    return {
+        "combined_score": score,  # Primary optimization target (required)
+        "artifacts": {            # Optional feedback for LLM
+            "feedback": "...",
+        },
+    }
+```
+
+<Info>
+SkyDiscover calls `evaluate()` in an isolated process with timeout and retry. You don't need to handle exceptions or timeouts yourself.
+</Info>
+
+## Return Format
+
+### Metrics
+
+Numeric values that measure program quality:
+
+```python
+return {
+    "combined_score": 0.95,      # Required: primary optimization target
+    "accuracy": 0.95,             # Optional: additional metrics
+    "latency": 120.5,
+    "memory_mb": 256,
+}
+```
+
+**Combined Score:**
+- SkyDiscover maximizes this value
+- If omitted, averages all numeric metrics
+- Should be in range [0, 1] for best results
+
+### Artifacts
+
+Textual feedback injected into the next LLM prompt:
+
+```python
+return {
+    "combined_score": 0.75,
+    "artifacts": {
+        "feedback": "Failed 3/10 test cases. Off-by-one error in loop.",
+        "test_results": "...",
+        "error_message": "IndexError: list index out of range",
+    },
+}
+```
+
+Artifacts help the LLM:
+- Understand **why** the score is low
+- Identify specific issues to fix
+- Learn from failure patterns
+
+## Real Examples
+
+### Example 1: Circle Packing
+
+**Problem:** Pack 26 circles in a unit square to maximize sum of radii.
+
+```python
+import numpy as np
+import subprocess
+import sys
+import tempfile
+import pickle
+
+def validate_packing(centers, radii):
+    """Check circles don't overlap and are inside unit square."""
+    n = centers.shape[0]
+
+    # Check bounds
+    for i in range(n):
+        x, y = centers[i]
+        r = radii[i]
+        if x - r < -1e-6 or x + r > 1 + 1e-6:
+            return False
+        if y - r < -1e-6 or y + r > 1 + 1e-6:
+            return False
+
+    # Check overlaps
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = np.linalg.norm(centers[i] - centers[j])
+            if dist < radii[i] + radii[j] - 1e-6:
+                return False
+
+    return True
+
+def run_with_timeout(program_path, timeout_seconds=20):
+    """Run program in subprocess with timeout."""
+    script = f"""
+import sys
+import numpy as np
+import pickle
+
+spec = __import__('importlib.util').util.spec_from_file_location(
+    "program", '{program_path}'
+)
+program = __import__('importlib.util').util.module_from_spec(spec)
+spec.loader.exec_module(program)
+
+centers, radii, sum_radii = program.run_packing()
+
+with open('results.pkl', 'wb') as f:
+    pickle.dump({{
+        'centers': centers,
+        'radii': radii,
+        'sum_radii': sum_radii
+    }}, f)
+"""
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
+        f.write(script.encode())
+        temp_path = f.name
+
+    process = subprocess.Popen(
+        [sys.executable, temp_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout, stderr = process.communicate(timeout=timeout_seconds)
+
+    with open("results.pkl", "rb") as f:
+        results = pickle.load(f)
+
+    return results["centers"], results["radii"], results["sum_radii"]
+
+def evaluate(program_path):
+    TARGET_VALUE = 2.635  # AlphaEvolve result for n=26
+
+    try:
+        centers, radii, sum_radii = run_with_timeout(program_path, timeout_seconds=600)
+
+        # Validate solution
+        valid = validate_packing(centers, radii)
+
+        if not valid:
+            return {
+                "combined_score": 0.0,
+                "validity": 0.0,
+                "sum_radii": 0.0,
+                "artifacts": {
+                    "feedback": "Invalid packing: circles overlap or exceed bounds"
+                },
+            }
+
+        # Calculate metrics
+        target_ratio = sum_radii / TARGET_VALUE
+
+        return {
+            "combined_score": target_ratio,
+            "validity": 1.0,
+            "sum_radii": float(sum_radii),
+            "target_ratio": float(target_ratio),
+            "artifacts": {
+                "feedback": f"Valid packing! Sum={sum_radii:.4f}, ratio={target_ratio:.2%}"
+            },
+        }
+
+    except Exception as e:
+        return {
+            "combined_score": 0.0,
+            "artifacts": {
+                "feedback": f"Evaluation failed: {str(e)}"
+            },
+        }
+```
+
+**Key Points:**
+- Run in subprocess with timeout for safety
+- Validation checks (bounds, overlaps)
+- Normalize score to [0, 1] range
+- Provide actionable feedback in artifacts
+
+**Source:** `benchmarks/math/circle_packing/evaluator.py:184`
+
+---
+
+### Example 2: Cloud Broadcast Optimization
+
+**Problem:** Minimize cost of broadcasting data across cloud regions.
+
+```python
+import importlib.util
+import json
+import os
+
+def evaluate(program_path):
+    """Evaluate cross-cloud broadcast routing algorithm."""
+    try:
+        # Load the evolved program
+        spec = importlib.util.spec_from_file_location("program", program_path)
+        program = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(program)
+
+        if not hasattr(program, "search_algorithm"):
+            return {
+                "combined_score": 0.0,
+                "artifacts": {
+                    "feedback": "Missing search_algorithm function"
+                },
+            }
+
+        # Test on multiple cloud configurations
+        config_files = [
+            "examples/config/intra_aws.json",
+            "examples/config/intra_azure.json",
+            "examples/config/inter_agz.json",
+        ]
+
+        total_cost = 0.0
+        successful_configs = 0
+
+        for config_file in config_files:
+            with open(config_file) as f:
+                config = json.load(f)
+
+            # Run the algorithm
+            source = config["source_node"]
+            destinations = config["dest_nodes"]
+            graph = make_nx_graph(num_vms=2)
+            num_partitions = config["num_partitions"]
+
+            broadcast_topology = program.search_algorithm(
+                source, destinations, graph, num_partitions
+            )
+
+            # Validate topology
+            is_valid, error = validate_broadcast_topology(
+                broadcast_topology, source, destinations, num_partitions, graph
+            )
+
+            if not is_valid:
+                return {
+                    "combined_score": 0.0,
+                    "artifacts": {
+                        "feedback": f"Invalid topology: {error}"
+                    },
+                }
+
+            # Simulate and measure cost
+            simulator = BCSimulator(num_vms=2)
+            _, cost = simulator.evaluate_path(broadcast_topology, config)
+
+            total_cost += cost
+            successful_configs += 1
+
+        # Calculate metrics
+        avg_cost = total_cost / successful_configs
+        cost_score = 1.0 / (1.0 + total_cost)  # Lower cost = higher score
+
+        return {
+            "combined_score": cost_score,
+            "total_cost": total_cost,
+            "avg_cost": avg_cost,
+            "successful_configs": successful_configs,
+            "artifacts": {
+                "feedback": f"Avg cost: ${avg_cost:.2f}, Total: ${total_cost:.2f}"
+            },
+        }
+
+    except Exception as e:
+        return {
+            "combined_score": 0.0,
+            "artifacts": {
+                "feedback": f"Evaluation error: {str(e)}"
+            },
+        }
+```
+
+**Key Points:**
+- Test on multiple configurations for robustness
+- Validate output structure before evaluation
+- Transform cost to score (lower cost → higher score)
+- Report detailed metrics for analysis
+
+**Source:** `benchmarks/ADRS/cloudcast/evaluator.py:122`
+
+---
+
+### Example 3: GPU Kernel Optimization
+
+**Problem:** Optimize CUDA kernel performance.
+
+```python
+import torch
+import triton
+import time
+
+def evaluate(program_path):
+    """Benchmark GPU kernel against reference implementation."""
+    try:
+        # Load kernel
+        spec = importlib.util.spec_from_file_location("kernel", program_path)
+        kernel_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(kernel_module)
+
+        # Test data
+        sizes = [(1024, 1024), (2048, 2048), (4096, 4096)]
+        speedups = []
+        correctness_passed = True
+
+        for M, N in sizes:
+            # Generate inputs
+            a = torch.randn(M, N, device='cuda')
+            b = torch.randn(M, N, device='cuda')
+
+            # Correctness check
+            expected = a + b
+            result = kernel_module.vector_add(a, b)
+
+            if not torch.allclose(result, expected, rtol=1e-5):
+                correctness_passed = False
+                break
+
+            # Performance benchmark
+            torch.cuda.synchronize()
+            start = time.time()
+            for _ in range(100):
+                _ = kernel_module.vector_add(a, b)
+            torch.cuda.synchronize()
+            evolved_time = (time.time() - start) / 100
+
+            # Baseline
+            torch.cuda.synchronize()
+            start = time.time()
+            for _ in range(100):
+                _ = a + b
+            torch.cuda.synchronize()
+            baseline_time = (time.time() - start) / 100
+
+            speedup = baseline_time / evolved_time
+            speedups.append(speedup)
+
+        if not correctness_passed:
+            return {
+                "combined_score": 0.0,
+                "correctness": 0.0,
+                "artifacts": {
+                    "feedback": "Correctness check failed"
+                },
+            }
+
+        avg_speedup = sum(speedups) / len(speedups)
+        # Normalize: 1x = 0.5, 2x = 1.0
+        score = min(avg_speedup / 2.0, 1.0)
+
+        return {
+            "combined_score": score,
+            "correctness": 1.0,
+            "avg_speedup": avg_speedup,
+            "speedups": speedups,
+            "artifacts": {
+                "feedback": f"Speedup: {avg_speedup:.2f}x over baseline"
+            },
+        }
+
+    except Exception as e:
+        return {
+            "combined_score": 0.0,
+            "artifacts": {
+                "feedback": f"Kernel error: {str(e)}"
+            },
+        }
+```
+
+**Key Points:**
+- Separate correctness from performance
+- Test multiple problem sizes
+- Compare against baseline
+- Normalize speedup to [0, 1] score
+
+**Source:** `benchmarks/gpu_mode/vecadd/evaluator.py`
+
+## Cascade Evaluation
+
+For expensive evaluations, use two-stage cascade to save time:
+
+**Stage 1:** Fast validation (syntax, basic tests)  
+**Stage 2:** Full evaluation (only if stage 1 passes threshold)
+
+```python
+def evaluate_stage1(program_path):
+    """Quick validation - runs every iteration."""
+    # Syntax check
+    try:
+        spec = importlib.util.spec_from_file_location("prog", program_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except SyntaxError as e:
+        return {
+            "combined_score": 0.0,
+            "artifacts": {"feedback": f"Syntax error: {e}"},
+        }
+
+    # Basic test
+    try:
+        result = module.solve(simple_test_case)
+        if result == expected:
+            return {"combined_score": 0.5, "basic_test": 1.0}
+        else:
+            return {
+                "combined_score": 0.0,
+                "artifacts": {"feedback": "Failed basic test"},
+            }
+    except Exception as e:
+        return {
+            "combined_score": 0.0,
+            "artifacts": {"feedback": f"Runtime error: {e}"},
+        }
+
+def evaluate_stage2(program_path):
+    """Full evaluation - only runs if stage1 score >= threshold."""
+    # Comprehensive test suite
+    passed = 0
+    total = len(test_cases)
+
+    for test in test_cases:
+        result = module.solve(test.input)
+        if result == test.expected:
+            passed += 1
+
+    accuracy = passed / total
+    return {
+        "combined_score": accuracy,
+        "test_accuracy": accuracy,
+        "tests_passed": passed,
+        "tests_total": total,
+    }
+```
+
+**Configuration:**
+
+```yaml
+evaluator:
+  cascade_evaluation: true
+  cascade_thresholds: [0.5]  # Only run stage2 if stage1 >= 0.5
+  timeout: 300
+```
+
+SkyDiscover automatically runs stage1 → threshold check → stage2 and merges metrics.
+
+**Source:** `benchmarks/math/circle_packing/evaluator.py:279`
+
+## Best Practices
+
+### 1. Normalize Scores
+
+Always normalize `combined_score` to [0, 1] range:
+
+```python
+# ✅ Good
+score = accuracy  # Already in [0, 1]
+
+# ✅ Good
+score = min(speedup / target_speedup, 1.0)
+
+# ✅ Good
+score = 1.0 / (1.0 + cost)  # Inverse for minimization
+
+# ❌ Bad
+score = latency_ms  # Unbounded, unclear direction
+```
+
+### 2. Provide Actionable Feedback
+
+```python
+# ✅ Good
+"artifacts": {
+    "feedback": "Failed test case 3: expected [1,2,3], got [1,2]. Off-by-one error."
+}
+
+# ❌ Bad
+"artifacts": {
+    "feedback": "Some tests failed"
+}
+```
+
+### 3. Handle Errors Gracefully
+
+```python
+try:
+    result = run_program(program_path)
+    score = evaluate_result(result)
+except TimeoutError:
+    return {"combined_score": 0.0, "artifacts": {"feedback": "Timeout"}}
+except Exception as e:
+    return {"combined_score": 0.0, "artifacts": {"feedback": str(e)}}
+```
+
+### 4. Use Subprocess for Safety
+
+Isolate program execution to prevent crashes:
+
+```python
+import subprocess
+import sys
+
+def run_with_timeout(program_path, timeout=30):
+    process = subprocess.Popen(
+        [sys.executable, program_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return stdout.decode()
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise TimeoutError("Program exceeded time limit")
+```
+
+### 5. Report Multiple Metrics
+
+Helps with analysis and multi-objective optimization:
+
+```python
+return {
+    "combined_score": 0.85,  # Weighted average
+    "accuracy": 0.9,
+    "speed_score": 0.8,
+    "memory_score": 0.85,
+    # ...
+}
+```
+
+### 6. Test on Multiple Cases
+
+```python
+scores = []
+for test_case in test_suite:
+    result = evaluate_single(program, test_case)
+    scores.append(result)
+
+return {
+    "combined_score": sum(scores) / len(scores),
+    "worst_case": min(scores),
+    "best_case": max(scores),
+}
+```
+
+## Common Patterns
+
+### Correctness + Performance
+
+```python
+correct = check_correctness(program)
+if not correct:
+    return {"combined_score": 0.0, "correctness": 0.0}
+
+performance = measure_performance(program)
+score = 0.5 + 0.5 * performance  # Correctness worth 0.5, performance up to 0.5
+
+return {
+    "combined_score": score,
+    "correctness": 1.0,
+    "performance": performance,
+}
+```
+
+### Cost Minimization
+
+```python
+cost = calculate_cost(program)
+baseline_cost = 1000.0
+
+# Normalize: 0 cost = 1.0 score, baseline cost = 0.5 score
+score = baseline_cost / (baseline_cost + cost)
+
+return {
+    "combined_score": score,
+    "cost": cost,
+    "cost_reduction": (baseline_cost - cost) / baseline_cost,
+}
+```
+
+### Multi-Objective
+
+```python
+accuracy = test_accuracy(program)
+latency = measure_latency(program)
+memory = measure_memory(program)
+
+# Weighted combination
+score = 0.5 * accuracy + 0.3 * (1.0 - latency) + 0.2 * (1.0 - memory)
+
+return {
+    "combined_score": score,
+    "accuracy": accuracy,
+    "latency": latency,
+    "memory": memory,
+}
+```
+
+## Configuration
+
+Evaluator behavior is controlled via `config.yaml`:
+
+```yaml
+evaluator:
+  timeout: 300                    # Max seconds per evaluation
+  max_retries: 2                  # Retry on transient failures
+  cascade_evaluation: true        # Enable two-stage evaluation
+  cascade_thresholds: [0.7]       # Threshold for stage 2
+  file_suffix: ".py"              # Extension for temp files
+```
+
+See [Configuration Guide](/config/overview) for all options.
+
+## Debugging
+
+Enable prompt logging to see what's sent to the LLM:
+
+```yaml
+search:
+  database:
+    log_prompts: true  # Save prompts to checkpoints/
+```
+
+Inspect evaluation errors:
+
+```python
+# In your evaluator
+import traceback
+
+try:
+    result = run_program(program_path)
+except Exception as e:
+    return {
+        "combined_score": 0.0,
+        "artifacts": {
+            "feedback": str(e),
+            "traceback": traceback.format_exc(),
+        },
+    }
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Evolution Blocks" href="/concepts/evolution-blocks">
+    Control which code regions get evolved
+  </Card>
+  
+  <Card title="Architecture" href="/concepts/architecture">
+    How evaluators integrate with the framework
+  </Card>
+</CardGroup>

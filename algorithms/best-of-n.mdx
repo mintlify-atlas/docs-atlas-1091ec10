@@ -1,0 +1,330 @@
+---
+title: 'Best-of-N'
+description: 'Generate N variants per iteration and keep the best one'
+icon: 'trophy'
+---
+
+## Overview
+
+Best-of-N is a simple yet effective algorithm that reuses the same parent program for N consecutive iterations, generating N different variants and keeping the best. This allows thorough exploration of variations from a single starting point.
+
+<CardGroup cols={2}>
+  <Card title="Focused Exploration" icon="crosshairs">
+    Generates multiple variants from the same parent
+  </Card>
+  <Card title="Automatic Reset" icon="rotate">
+    Switches to a new parent after N iterations
+  </Card>
+  <Card title="Simple Logic" icon="circle-check">
+    Easy to understand and configure
+  </Card>
+  <Card title="Efficient Sampling" icon="gauge">
+    No complex selection or archive management
+  </Card>
+</CardGroup>
+
+## How It Works
+
+### Iteration Cycle
+
+1. **Parent Selection**: Select the best program as parent (if starting fresh or after N iterations)
+2. **Variant Generation**: Generate a variant of the parent
+3. **Evaluation**: Score the variant
+4. **Counter Increment**: Increment iteration counter
+5. **Check Reset**: If counter reaches N, reset and select new parent
+6. **Repeat**: Continue with same or new parent
+
+<Steps>
+  <Step title="Iteration 1">
+    Select best program as parent, generate variant #1
+  </Step>
+  <Step title="Iterations 2-N">
+    Reuse same parent, generate variants #2 through #N
+  </Step>
+  <Step title="Iteration N+1">
+    Select new best program (which might be one of the N variants), reset counter
+  </Step>
+</Steps>
+
+### Context Programs
+
+While the parent stays fixed for N iterations, context programs are sampled fresh each time from the current top programs, providing updated examples.
+
+## Configuration
+
+### Basic Usage
+
+```bash
+skydiscover-run initial_program.py evaluator.py \
+  --search best_of_n \
+  --iterations 50
+```
+
+### Configuration File
+
+```yaml
+search:
+  type: best_of_n
+  database:
+    # Number of variants to generate from same parent
+    best_of_n: 5
+    
+    # Standard database options
+    db_path: "outputs/best_of_n"
+```
+
+### Python API
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    initial_program="initial.py",
+    evaluator="eval.py",
+    search="best_of_n",
+    iterations=50,
+    config={
+        "search": {
+            "database": {
+                "best_of_n": 8  # Try 8 variants per parent
+            }
+        }
+    }
+)
+```
+
+## Configuration Options
+
+<ParamField path="best_of_n" type="int" default="5">
+  Number of consecutive iterations to reuse the same parent before selecting a new one.
+  
+  **Recommended values:**
+  - 3-5: Quick iteration, frequent parent updates
+  - 5-10: Balanced exploration/update
+  - 10-20: Deep exploration of each parent
+</ParamField>
+
+<ParamField path="num_context_programs" type="int" default="4">
+  Number of top programs to include as context (updated each iteration)
+</ParamField>
+
+## When to Use Best-of-N
+
+<AccordionGroup>
+  <Accordion title="Best For" icon="check">
+    - Problems where each parent has many possible improvements
+    - Stochastic or creative generation (gives LLM multiple tries)
+    - When you want to thoroughly explore variations
+    - Limited iteration budgets where you want multiple attempts
+  </Accordion>
+  
+  <Accordion title="Avoid When" icon="xmark">
+    - Deterministic generation (LLM produces same output each time)
+    - Problems requiring diverse exploration of solution space
+    - Very short runs where N > total iterations
+  </Accordion>
+</AccordionGroup>
+
+## Example
+
+### Creative Text Generation
+
+Best-of-N works well for creative tasks with high LLM variance:
+
+```python
+# evaluator.py - optimize a prompt for Q&A accuracy
+def evaluate(program_path):
+    with open(program_path) as f:
+        prompt_template = f.read()
+    
+    # Test on QA dataset
+    correct = 0
+    for question, answer in qa_dataset:
+        response = llm.generate(prompt_template.format(question=question))
+        if answer.lower() in response.lower():
+            correct += 1
+    
+    return {"combined_score": correct / len(qa_dataset)}
+```
+
+```yaml
+# config.yaml
+search:
+  type: best_of_n
+  database:
+    best_of_n: 10  # Try 10 different prompt variations
+```
+
+```bash
+# Run
+skydiscover-run initial_prompt.txt evaluator.py \
+  --config config.yaml \
+  --iterations 50
+```
+
+**Result**: Every 10 iterations, the algorithm picks the best prompt so far and generates 10 more variants.
+
+## Choosing N
+
+The optimal value of N depends on several factors:
+
+### LLM Variance
+
+<Tabs>
+  <Tab title="High Variance">
+    If the LLM produces very different outputs each time (creative tasks, underspecified problems):
+    
+    ```yaml
+    best_of_n: 10-20
+    ```
+    
+    More attempts = higher chance of finding a good variant
+  </Tab>
+  
+  <Tab title="Low Variance">
+    If outputs are similar (deterministic tasks, specific constraints):
+    
+    ```yaml
+    best_of_n: 3-5
+    ```
+    
+    Fewer attempts needed, update parent more frequently
+  </Tab>
+</Tabs>
+
+### Iteration Budget
+
+- **Total iterations = 30**: `best_of_n: 3` (10 parent updates)
+- **Total iterations = 100**: `best_of_n: 5-10` (10-20 parent updates)
+- **Total iterations = 500**: `best_of_n: 10-25` (20-50 parent updates)
+
+<Warning>
+  Avoid setting `best_of_n` too high relative to total iterations. You need multiple parent updates to make progress.
+</Warning>
+
+## Monitoring Progress
+
+### Track Parent Switches
+
+```python
+# The database tracks current parent
+print(f"Current parent: {database.current_parent_id}")
+print(f"Iteration count: {database.parent_iteration_count}/{database.n}")
+
+# Will switch when parent_iteration_count reaches n
+```
+
+### Analyze Variants
+
+After a run, analyze which variants were best:
+
+```python
+import json
+from pathlib import Path
+
+# Load all programs
+programs = []
+for prog_file in Path("outputs/best_of_n/programs").glob("*.json"):
+    with open(prog_file) as f:
+        programs.append(json.load(f))
+
+# Group by parent
+from collections import defaultdict
+by_parent = defaultdict(list)
+for prog in programs:
+    if prog.get("parent_id"):
+        by_parent[prog["parent_id"]].append(prog)
+
+# Find best variant for each parent
+for parent_id, children in by_parent.items():
+    best_child = max(children, key=lambda p: p["metrics"].get("combined_score", 0))
+    avg_score = sum(p["metrics"].get("combined_score", 0) for p in children) / len(children)
+    
+    print(f"Parent {parent_id[:8]}: {len(children)} variants")
+    print(f"  Best: {best_child['metrics']['combined_score']:.4f}")
+    print(f"  Avg:  {avg_score:.4f}")
+```
+
+## Comparison with Other Algorithms
+
+| Algorithm | Parent Reuse | Exploration | Use Case |
+|-----------|-------------|-------------|----------|
+| **Best-of-N** | Fixed for N iterations | Limited to variants | Creative/stochastic tasks |
+| [Top-K](/algorithms/topk) | Changes each iteration | None | Deterministic refinement |
+| [Beam Search](/algorithms/beam-search) | Multiple in parallel | Controlled breadth | Multiple solution paths |
+| [AdaEvolve](/algorithms/adaevolve) | Island-based | Adaptive | Complex landscapes |
+
+## Advanced Strategies
+
+### Adaptive N
+
+Adjust N based on improvement:
+
+```python
+from skydiscover.search.best_of_n import BestOfNDatabase
+
+class AdaptiveBestOfNDatabase(BestOfNDatabase):
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.base_n = self.n
+        self.last_best_score = 0
+    
+    def add(self, program, iteration=None, **kwargs):
+        result = super().add(program, iteration, **kwargs)
+        
+        # Check if we found improvement
+        best = self.get_best_program()
+        current_score = best.metrics.get('combined_score', 0) if best else 0
+        
+        if current_score > self.last_best_score:
+            # Found improvement - extend exploration
+            self.n = min(self.base_n * 2, 20)
+            self.last_best_score = current_score
+        elif self.parent_iteration_count >= self.n:
+            # No improvement - reduce N
+            self.n = max(self.base_n // 2, 3)
+        
+        return result
+```
+
+### Diversity Sampling
+
+Vary the context programs more:
+
+```python
+import random
+
+class DiverseBestOfNDatabase(BestOfNDatabase):
+    def sample(self, num_context_programs=4, **kwargs):
+        parent, _ = super().sample(num_context_programs, **kwargs)
+        
+        # Sample more diverse context
+        all_programs = list(self.programs.values())
+        random.shuffle(all_programs)
+        diverse_context = [p for p in all_programs if p.id != parent.id][:num_context_programs]
+        
+        return parent, diverse_context
+```
+
+## Tips for Best Results
+
+<CardGroup cols={2}>
+  <Card title="Use Temperature" icon="temperature-high">
+    Enable LLM temperature > 0 to get diverse variants from the same parent
+  </Card>
+  <Card title="Monitor Variance" icon="chart-line">
+    Track score variance of variants. Low variance = reduce N
+  </Card>
+  <Card title="Balance N and Budget" icon="scale-balanced">
+    Ensure at least 5-10 parent updates in your iteration budget
+  </Card>
+  <Card title="Combine with Restarts" icon="rotate">
+    Periodically reset to explore from different starting points
+  </Card>
+</CardGroup>
+
+## Related Algorithms
+
+- [Top-K](/algorithms/topk) - Similar but updates parent every iteration
+- [Beam Search](/algorithms/beam-search) - Maintains multiple parents simultaneously
+- [GEPA Native](/algorithms/gepa-native) - Uses acceptance gating for variant selection

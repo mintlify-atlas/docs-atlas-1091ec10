@@ -1,0 +1,399 @@
+---
+title: Custom Benchmarks
+description: Add your own optimization tasks by writing an evaluator and optional seed program
+---
+
+SkyDiscover can optimize any task where you can write a scoring function. All you need is an evaluator—a seed program is optional.
+
+## Minimum Requirements
+
+Only **1 file** is required:
+
+<Card title="evaluator.py" icon="flask">
+  A Python function that scores whatever the LLM produces
+</Card>
+
+Optional files:
+
+<CardGroup cols={2}>
+  <Card title="initial_program.py" icon="code">
+    Seed solution to evolve from
+  </Card>
+  <Card title="config.yaml" icon="gear">
+    System prompt and search settings
+  </Card>
+</CardGroup>
+
+---
+
+## Evaluator
+
+The evaluator is a Python function that receives a file path and returns a metrics dictionary.
+
+### Function Signature
+
+```python evaluator.py
+def evaluate(program_path: str) -> dict:
+    """
+    Score a program.
+
+    Args:
+        program_path: Path to .py file (code tasks) or .txt file (prompt tasks)
+
+    Returns:
+        Dictionary with at least 'combined_score' key
+    """
+    # Your scoring logic here
+    return {
+        "combined_score": 0.73,  # Required: 0.0 to 1.0 (or higher)
+        # Optional: add more metrics
+        "accuracy": 0.85,
+        "latency_ms": 120,
+    }
+```
+
+<Warning>
+  **Return on failure**, don't raise:
+  ```python
+  return {"combined_score": 0.0, "error": "Division by zero"}
+  ```
+</Warning>
+
+### Complete Example: Math Optimization
+
+Here's a real evaluator from the Heilbronn triangle benchmark:
+
+```python benchmarks/math/heilbronn_triangle/evaluator.py
+import time
+import numpy as np
+import sys
+import os
+from importlib import __import__
+import itertools
+
+BENCHMARK = 0.036529889880030156
+TOL = 1e-6
+NUM_POINTS = 11
+
+def check_inside_triangle_wtol(points: np.ndarray, tol: float = 1e-6):
+    """Check that all points are inside the equilateral triangle."""
+    for x, y in points:
+        cond1 = y >= -tol
+        cond2 = np.sqrt(3) * x <= np.sqrt(3) - y + tol
+        cond3 = y <= np.sqrt(3) * x + tol
+
+        if not (cond1 and cond2 and cond3):
+            raise ValueError(
+                f"Point ({x}, {y}) is outside the triangle (tolerance: {tol})."
+            )
+
+def triangle_area(a: np.array, b: np.array, c: np.array) -> float:
+    return np.abs(a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1])) / 2
+
+def evaluate(program_path: str):
+    try:
+        # 1. Import the program dynamically
+        abs_program_path = os.path.abspath(program_path)
+        program_dir = os.path.dirname(abs_program_path)
+        module_name = os.path.splitext(os.path.basename(program_path))[0]
+
+        points = None
+        try:
+            sys.path.insert(0, program_dir)
+            program = __import__(module_name)
+
+            # 2. Run the program and time it
+            start_time = time.time()
+            points = program.heilbronn_triangle11()
+            end_time = time.time()
+            eval_time = end_time - start_time
+        finally:
+            if program_dir in sys.path:
+                sys.path.remove(program_dir)
+
+        # 3. Validate output
+        if not isinstance(points, np.ndarray):
+            points = np.array(points)
+
+        if points.shape != (NUM_POINTS, 2):
+            raise ValueError(f"Invalid shape: {points.shape}, expected {(NUM_POINTS, 2)}")
+
+        check_inside_triangle_wtol(points, TOL)
+
+        # 4. Compute metric
+        a = np.array([0, 0])
+        b = np.array([1, 0])
+        c = np.array([0.5, np.sqrt(3) / 2])
+        min_triangle_area = min(
+            [triangle_area(p1, p2, p3) for p1, p2, p3 in itertools.combinations(points, 3)]
+        )
+        min_area_normalized = min_triangle_area / triangle_area(a, b, c)
+
+        # 5. Return metrics
+        return {
+            "min_area_normalized": float(min_area_normalized),
+            "combined_score": float(min_area_normalized / BENCHMARK),
+            "eval_time": float(eval_time),
+        }
+    except Exception as e:
+        # 6. Always return on failure
+        return {"combined_score": 0.0, "error": str(e)}
+```
+
+### Key Points
+
+<AccordionGroup>
+  <Accordion title="Import the program dynamically">
+    Use `importlib` to load the generated program:
+    ```python
+    import sys
+    import os
+    from importlib import __import__
+
+    program_dir = os.path.dirname(os.path.abspath(program_path))
+    module_name = os.path.splitext(os.path.basename(program_path))[0]
+
+    try:
+        sys.path.insert(0, program_dir)
+        program = __import__(module_name)
+        result = program.your_function()
+    finally:
+        if program_dir in sys.path:
+            sys.path.remove(program_dir)
+    ```
+  </Accordion>
+
+  <Accordion title="combined_score is required">
+    SkyDiscover uses `combined_score` to guide search. It should be:
+    - **0.0** for complete failure
+    - **1.0** for meeting the target
+    - **> 1.0** for exceeding the target
+
+    If you have multiple metrics, combine them:
+    ```python
+    combined_score = 0.5 * accuracy + 0.3 * speed + 0.2 * memory_efficiency
+    ```
+  </Accordion>
+
+  <Accordion title="Return on error, don't raise">
+    Raising exceptions will crash the discovery loop. Instead:
+    ```python
+    try:
+        # ... your evaluation logic
+        return {"combined_score": score, ...}
+    except Exception as e:
+        return {"combined_score": 0.0, "error": str(e)}
+    ```
+  </Accordion>
+
+  <Accordion title="Add optional metrics">
+    Extra metrics are logged but don't affect search:
+    ```python
+    return {
+        "combined_score": 0.85,
+        "test_accuracy": 0.92,
+        "eval_time": 1.23,
+        "memory_mb": 45.6,
+        "num_cases_passed": 87,
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Seed Program
+
+The seed program is the starting solution. Mark the region for the LLM to evolve with `EVOLVE-BLOCK` markers.
+
+### Code Tasks
+
+For code optimization, use `initial_program.py`:
+
+```python initial_program.py
+import numpy as np
+
+# EVOLVE-BLOCK-START
+def heilbronn_triangle11():
+    """Generate 11 points in an equilateral triangle."""
+    # Simple uniform random placement (LLM will improve this)
+    points = []
+    for i in range(11):
+        x = np.random.uniform(0, 1)
+        y = np.random.uniform(0, np.sqrt(3)/2)
+        points.append([x, y])
+    return np.array(points)
+# EVOLVE-BLOCK-END
+
+# Helper functions outside the evolve block are preserved
+def helper_function():
+    pass
+```
+
+<Note>
+  **Everything between `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` can be mutated by the LLM.** Code outside these markers is preserved.
+</Note>
+
+### Prompt Tasks
+
+For prompt optimization, use a plain text file:
+
+```txt initial_prompt.txt
+Answer the question by reasoning step by step.
+```
+
+No markers needed—the entire file is mutable.
+
+Set `language: text` in config:
+
+```yaml config.yaml
+language: text
+diff_based_generation: false
+
+prompt:
+  system_message: |-
+    You are optimizing a prompt for question answering.
+    Generate a prompt that improves accuracy on HotPotQA.
+```
+
+---
+
+## Configuration
+
+Create `config.yaml` to set the system prompt and search parameters:
+
+```yaml config.yaml
+# System prompt tells the LLM what to optimize
+prompt:
+  system_message: |-
+    You are an expert at geometric optimization.
+    Your goal is to place 11 points in an equilateral triangle
+    to maximize the minimum triangle area.
+
+# Search algorithm
+search:
+  type: topk
+  num_context_programs: 4
+
+# Evaluation settings
+evaluator:
+  timeout: 10  # seconds per evaluation
+
+# LLM settings
+llm:
+  models:
+    - name: gpt-4
+      temperature: 0.7
+```
+
+<Note>
+  If you don't provide `config.yaml`, SkyDiscover uses default settings with a generic system prompt.
+</Note>
+
+---
+
+## Directory Structure
+
+Organize your benchmark like this:
+
+```
+my_benchmark/
+├── evaluator.py         # Required: scoring function
+├── initial_program.py   # Optional: seed solution
+└── config.yaml          # Optional: system prompt + settings
+```
+
+Simple examples to copy:
+- **Code**: [`benchmarks/math/heilbronn_triangle/`](https://github.com/SkyAI-Discover/skydiscover/tree/main/benchmarks/math/heilbronn_triangle)
+- **Prompt**: [`benchmarks/prompt_optimization/hotpot_qa/`](https://github.com/SkyAI-Discover/skydiscover/tree/main/benchmarks/prompt_optimization/hotpot_qa)
+
+---
+
+## Running Your Benchmark
+
+### With seed program:
+
+```bash
+skydiscover-run \
+  my_benchmark/initial_program.py \
+  my_benchmark/evaluator.py \
+  -c my_benchmark/config.yaml \
+  -s topk \
+  -i 100
+```
+
+### Without seed program (from scratch):
+
+```bash
+skydiscover-run \
+  my_benchmark/evaluator.py \
+  -c my_benchmark/config.yaml \
+  -s topk \
+  -i 100
+```
+
+<Tip>
+  Start with `-i 10` to test your evaluator, then increase to `-i 100` or `-i 1000` for real runs.
+</Tip>
+
+---
+
+## Advanced: Docker Evaluation
+
+For sandboxed execution, use Docker in your evaluator:
+
+```python
+import docker
+
+def evaluate(program_path: str):
+    client = docker.from_env()
+
+    try:
+        # Build image with the program
+        container = client.containers.run(
+            image="python:3.10",
+            command=["python", "/program.py"],
+            volumes={program_path: {"bind": "/program.py", "mode": "ro"}},
+            mem_limit="512m",
+            timeout=10,
+            detach=False,
+            remove=True,
+        )
+
+        output = container.decode("utf-8")
+        score = parse_output(output)
+
+        return {"combined_score": score}
+    except Exception as e:
+        return {"combined_score": 0.0, "error": str(e)}
+```
+
+See [`benchmarks/frontier-cs-eval/`](https://github.com/SkyAI-Discover/skydiscover/tree/main/benchmarks/frontier-cs-eval) for a complete Docker judge example.
+
+---
+
+## Benchmark Types
+
+SkyDiscover includes ~200 tasks across multiple domains:
+
+| Domain | Examples | Evaluator Pattern |
+|--------|----------|-------------------|
+| **Math** | Circle packing, Erdős problems | Constraint validation + objective |
+| **Systems** | Cloud scheduling, load balancing | Simulation + performance metrics |
+| **Algorithms** | Competitive programming | Test cases + correctness |
+| **Prompts** | Question answering, reasoning | LLM judge or answer matching |
+| **GPU** | Triton kernel optimization | Benchmark + correctness check |
+| **Creative** | Image generation | Human evaluation or LLM judge |
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Custom Algorithms" icon="gears" href="/extending/custom-algorithms">
+    Implement your own search strategies
+  </Card>
+  <Card title="Context Builders" icon="message" href="/extending/context-builders">
+    Customize prompt generation
+  </Card>
+</CardGroup>

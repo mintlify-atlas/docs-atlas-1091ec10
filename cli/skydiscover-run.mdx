@@ -1,0 +1,328 @@
+---
+title: skydiscover-run
+description: Main CLI command to run SkyDiscover evolutionary discovery
+---
+
+## Overview
+
+The `skydiscover-run` command is the primary entry point for running AI-driven scientific and algorithmic discovery using SkyDiscover. It executes the evolutionary search process to generate, evaluate, and evolve programs toward optimal solutions.
+
+## Basic Syntax
+
+```bash
+skydiscover-run [initial_program] evaluation_file [OPTIONS]
+```
+
+## Positional Arguments
+
+<ParamField path="initial_program" type="string" optional>
+  Path to the initial program file to start the search from. If omitted, the search starts from scratch (no seed program).
+  
+  **Example:** `solutions/baseline.py`
+</ParamField>
+
+<ParamField path="evaluation_file" type="string" required>
+  Path to the evaluation file that defines how to score generated programs. Must contain an `evaluate` function.
+  
+  **Example:** `evaluators/math_eval.py`
+</ParamField>
+
+## Options
+
+### Configuration
+
+<ParamField path="--config" type="string" default="None">
+  Path to a YAML configuration file. See [Configuration](/config/overview) for details.
+  
+  **Alias:** `-c`
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --config config.yaml
+  ```
+</ParamField>
+
+<ParamField path="--output" type="string" default="Auto-generated">
+  Output directory for results, checkpoints, and logs. If not specified, SkyDiscover creates a directory based on the search algorithm and timestamp.
+  
+  **Alias:** `-o`
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --output ./results/experiment_1
+  ```
+</ParamField>
+
+### Search Parameters
+
+<ParamField path="--iterations" type="integer" default="From config or 100">
+  Maximum number of search iterations to run. Overrides the value in the configuration file.
+  
+  **Alias:** `-i`
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --iterations 500
+  ```
+</ParamField>
+
+<ParamField path="--search" type="string" default="From config or evox">
+  Search algorithm to use for evolutionary discovery.
+  
+  **Alias:** `-s`
+  
+  **Choices:**
+  - `evox` - Built-in evolutionary search
+  - `adaevolve` - Adaptive evolutionary algorithm
+  - `best_of_n` - Simple best-of-N sampling
+  - `beam_search` - Beam search strategy
+  - `topk` - Top-K selection
+  - `openevolve_native` - Native OpenEvolve integration
+  - `openevolve` - OpenEvolve with custom wrapper
+  - `shinkaevolve` - Shinka evolutionary search
+  - `gepa` - GEPA algorithm
+  - `gepa_native` - Native GEPA integration
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --search beam_search
+  ```
+</ParamField>
+
+### Model Configuration
+
+<ParamField path="--model" type="string" default="From config or gpt-5">
+  LLM model(s) to use for solution generation. Supports comma-separated list for multiple models with automatic load balancing.
+  
+  **Alias:** `-m`
+  
+  **Format:** `model_name` or `provider/model_name` or `model1,model2,model3`
+  
+  **Examples:**
+  ```bash
+  # Single model
+  skydiscover-run program.py eval.py --model gpt-5
+  
+  # Multiple models with load balancing
+  skydiscover-run program.py eval.py --model "gpt-5,gemini/gemini-3-pro"
+  
+  # Specific provider
+  skydiscover-run program.py eval.py --model anthropic/claude-5-sonnet
+  ```
+</ParamField>
+
+<ParamField path="--api-base" type="string" default="From config or provider default">
+  Base URL for the LLM API. Useful for using local models or custom API endpoints.
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --api-base http://localhost:8000/v1
+  ```
+</ParamField>
+
+### Advanced Options
+
+<ParamField path="--agentic" type="boolean" default="false">
+  Enable agentic mode, which allows the LLM to make multi-file edits and interact with a codebase. The codebase root is automatically derived from the initial program's directory.
+  
+  **Example:**
+  ```bash
+  skydiscover-run src/main.py eval.py --agentic
+  ```
+  
+  When enabled:
+  - Codebase root: `dirname(initial_program)`
+  - LLM can read and edit multiple files
+  - Best for complex refactoring tasks
+</ParamField>
+
+<ParamField path="--checkpoint" type="string" default="None">
+  Path to a checkpoint directory to resume from. Loads the saved state and continues the search.
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --checkpoint ./results/exp_1/checkpoints/checkpoint_150
+  ```
+</ParamField>
+
+### Logging
+
+<ParamField path="--log-level" type="string" default="WARNING">
+  Set the logging verbosity level.
+  
+  **Alias:** `-l`
+  
+  **Choices:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --log-level INFO
+  ```
+</ParamField>
+
+## Examples
+
+### Basic Usage
+
+Start a discovery run with an initial program and evaluator:
+
+```bash
+skydiscover-run initial_solution.py evaluator.py
+```
+
+### With Configuration File
+
+Use a custom configuration:
+
+```bash
+skydiscover-run baseline.py eval.py --config experiments/config.yaml
+```
+
+### Custom Output Directory and Iterations
+
+Run 1000 iterations and save results to a specific location:
+
+```bash
+skydiscover-run seed.py eval.py \
+  --iterations 1000 \
+  --output ./results/long_run
+```
+
+### Multiple Models with Custom Search
+
+Use multiple LLMs with beam search:
+
+```bash
+skydiscover-run program.py eval.py \
+  --model "gpt-5,anthropic/claude-5-sonnet" \
+  --search beam_search \
+  --iterations 500
+```
+
+### Agentic Mode for Multi-File Editing
+
+Enable agentic mode for complex codebase evolution:
+
+```bash
+skydiscover-run src/algorithm.py eval.py \
+  --agentic \
+  --model gpt-5 \
+  --iterations 200
+```
+
+### Resume from Checkpoint
+
+Continue a previous run:
+
+```bash
+skydiscover-run program.py eval.py \
+  --checkpoint ./results/exp_1/checkpoints/checkpoint_250 \
+  --iterations 500
+```
+
+### Local Model with Custom API
+
+Use a locally hosted LLM:
+
+```bash
+skydiscover-run program.py eval.py \
+  --model local/llama-5 \
+  --api-base http://localhost:8000/v1
+```
+
+### Verbose Logging for Debugging
+
+Run with detailed logs:
+
+```bash
+skydiscover-run program.py eval.py \
+  --log-level DEBUG \
+  --iterations 50
+```
+
+## Output
+
+When the run completes successfully, you'll see:
+
+```
+Active models:
+  1. gpt-5 (provider: openai, weight: 1)
+
+Discovery complete!
+Best program metrics:
+  combined_score: 0.9234
+  accuracy: 0.95
+  efficiency: 0.89
+
+Latest checkpoint: ./results/evox_20260305_143022/checkpoints/checkpoint_500
+To resume: --checkpoint ./results/evox_20260305_143022/checkpoints/checkpoint_500
+```
+
+## Output Directory Structure
+
+The output directory contains:
+
+```
+results/
+└── evox_20260305_143022/
+    ├── checkpoints/           # Periodic snapshots
+    │   ├── checkpoint_50/
+    │   ├── checkpoint_100/
+    │   └── checkpoint_500/
+    ├── programs/              # All generated programs
+    ├── best_program.py        # Best solution found
+    ├── metadata.json          # Run metadata
+    └── monitor_log.jsonl      # Event log for viewer
+```
+
+## Error Handling
+
+### File Not Found
+
+```
+Error: Initial program file 'solution.py' not found
+```
+
+**Solution:** Check the file path and ensure the file exists.
+
+### Invalid Checkpoint
+
+```
+Error: Checkpoint directory './old_checkpoint' not found
+```
+
+**Solution:** Verify the checkpoint path. Use the path shown in the completion message from a previous run.
+
+### Missing External Package
+
+```
+Error: The 'openevolve' backend requires its package.
+Install with:  pip install openevolve
+```
+
+**Solution:** Install the required package as indicated.
+
+### Invalid Model Specification
+
+```
+Error: Invalid model specification 'invalid-model'
+```
+
+**Solution:** Check the model name format. Use `provider/model-name` or just `model-name` for OpenAI models.
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/config/overview">
+    Learn about YAML configuration files
+  </Card>
+  <Card title="Evaluators" icon="check" href="/concepts/evaluators">
+    How to write evaluation functions
+  </Card>
+  <Card title="Search Algorithms" icon="magnifying-glass" href="/concepts/algorithms">
+    Available search strategies
+  </Card>
+  <Card title="CLI Flags Reference" icon="flag" href="/cli/flags">
+    Complete flag reference
+  </Card>
+</CardGroup>

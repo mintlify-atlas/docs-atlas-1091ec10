@@ -1,0 +1,362 @@
+---
+title: Math Optimization Examples
+description: Mathematical optimization problems including circle packing, Heilbronn problems, and more
+icon: "function"
+---
+
+The math benchmarks contain 14 optimization problems from the AlphaEvolve paper and additional geometric challenges. These demonstrate how SkyDiscover can discover novel solutions to open mathematical problems.
+
+## Circle Packing
+
+Pack 26 circles in a unit square to maximize the sum of their radii. This is problem B.12 from the AlphaEvolve paper.
+
+### Initial Program
+
+The starting solution places circles in concentric rings:
+
+<CodeGroup>
+```python initial_program.py
+# EVOLVE-BLOCK-START
+"""Constructor-based circle packing for n=26 circles"""
+import numpy as np
+
+def construct_packing():
+    """
+    Construct a specific arrangement of 26 circles in a unit square
+    that attempts to maximize the sum of their radii.
+
+    Returns:
+        Tuple of (centers, radii, sum_of_radii)
+    """
+    n = 26
+    centers = np.zeros((n, 2))
+
+    # Place a large circle in the center
+    centers[0] = [0.5, 0.5]
+
+    # Place 8 circles around it in a ring
+    for i in range(8):
+        angle = 2 * np.pi * i / 8
+        centers[i + 1] = [0.5 + 0.3 * np.cos(angle), 
+                          0.5 + 0.3 * np.sin(angle)]
+
+    # Place 16 more circles in an outer ring
+    for i in range(16):
+        angle = 2 * np.pi * i / 16
+        centers[i + 9] = [0.5 + 0.7 * np.cos(angle), 
+                          0.5 + 0.7 * np.sin(angle)]
+
+    # Clip to ensure everything is inside the unit square
+    centers = np.clip(centers, 0.01, 0.99)
+
+    # Compute maximum valid radii for this configuration
+    radii = compute_max_radii(centers)
+    sum_radii = np.sum(radii)
+
+    return centers, radii, sum_radii
+
+def compute_max_radii(centers):
+    """Compute maximum radii without overlap"""
+    n = centers.shape[0]
+    radii = np.ones(n)
+
+    # Limit by distance to square borders
+    for i in range(n):
+        x, y = centers[i]
+        radii[i] = min(x, y, 1 - x, 1 - y)
+
+    # Limit by distance to other circles
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = np.sqrt(np.sum((centers[i] - centers[j]) ** 2))
+            if radii[i] + radii[j] > dist:
+                scale = dist / (radii[i] + radii[j])
+                radii[i] *= scale
+                radii[j] *= scale
+
+    return radii
+# EVOLVE-BLOCK-END
+```
+</CodeGroup>
+
+### Evaluator
+
+The evaluator validates the packing and scores it against the AlphaEvolve benchmark:
+
+<CodeGroup>
+```python evaluator.py
+import numpy as np
+
+def validate_packing(centers, radii):
+    """Validate circles don't overlap and stay in unit square"""
+    n = centers.shape[0]
+    
+    # Check for NaN values
+    if np.isnan(centers).any() or np.isnan(radii).any():
+        return False
+    
+    # Check circles are inside the unit square
+    for i in range(n):
+        x, y = centers[i]
+        r = radii[i]
+        if x - r < -1e-6 or x + r > 1 + 1e-6 or \
+           y - r < -1e-6 or y + r > 1 + 1e-6:
+            return False
+    
+    # Check for overlaps
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = np.sqrt(np.sum((centers[i] - centers[j]) ** 2))
+            if dist < radii[i] + radii[j] - 1e-6:
+                return False
+    
+    return True
+
+def evaluate(program_path):
+    """Evaluate circle packing solution"""
+    TARGET_VALUE = 2.635  # AlphaEvolve result for n=26
+    
+    # Import and run the program
+    spec = importlib.util.spec_from_file_location("program", program_path)
+    program = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(program)
+    
+    centers, radii, sum_radii = program.run_packing()
+    
+    # Validate solution
+    valid = validate_packing(centers, radii)
+    sum_radii = np.sum(radii) if valid else 0.0
+    
+    # Score relative to target
+    target_ratio = sum_radii / TARGET_VALUE if valid else 0.0
+    combined_score = target_ratio
+    
+    return {
+        "sum_radii": float(sum_radii),
+        "target_ratio": float(target_ratio),
+        "validity": 1.0 if valid else 0.0,
+        "combined_score": float(combined_score)
+    }
+```
+</CodeGroup>
+
+### Running the Example
+
+```bash
+cd benchmarks/math/circle_packing
+
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+<Tip>
+**Expected Results:** AlphaEvolve achieved a sum of radii of 2.635. Your evolved solution should approach or exceed this value.
+</Tip>
+
+## Heilbronn Triangle
+
+Arrange 11 points inside an equilateral triangle to maximize the area of the smallest triangle formed by any three points.
+
+### Initial Program
+
+<CodeGroup>
+```python initial_program.py
+# EVOLVE-BLOCK-START
+import numpy as np
+
+def heilbronn_triangle11() -> np.ndarray:
+    """
+    Construct an arrangement of 11 points on or inside an equilateral 
+    triangle to maximize the area of the smallest triangle formed.
+
+    Returns:
+        points: np.ndarray of shape (11, 2) with x,y coordinates
+    """
+    n = 11
+    points = np.zeros((n, 2))
+    # Evolution will improve this initial configuration
+    return points
+# EVOLVE-BLOCK-END
+```
+</CodeGroup>
+
+### Evaluator
+
+<CodeGroup>
+```python evaluator.py
+import numpy as np
+import itertools
+
+BENCHMARK = 0.036529889880030156  # Target value
+NUM_POINTS = 11
+
+def check_inside_triangle(points: np.ndarray):
+    """Check points are inside equilateral triangle"""
+    # Triangle vertices: (0,0), (1,0), (0.5, sqrt(3)/2)
+    for x, y in points:
+        cond1 = y >= -1e-6
+        cond2 = np.sqrt(3) * x <= np.sqrt(3) - y + 1e-6
+        cond3 = y <= np.sqrt(3) * x + 1e-6
+        
+        if not (cond1 and cond2 and cond3):
+            raise ValueError(f"Point ({x}, {y}) outside triangle")
+
+def triangle_area(a: np.array, b: np.array, c: np.array) -> float:
+    """Compute area of triangle formed by three points"""
+    return abs(a[0] * (b[1] - c[1]) + 
+               b[0] * (c[1] - a[1]) + 
+               c[0] * (a[1] - b[1])) / 2
+
+def evaluate(program_path: str):
+    # Import program and get points
+    program = __import__(module_name)
+    points = program.heilbronn_triangle11()
+    
+    # Validate
+    if points.shape != (NUM_POINTS, 2):
+        raise ValueError(f"Invalid shape: {points.shape}")
+    
+    check_inside_triangle(points)
+    
+    # Compute minimum triangle area
+    min_area = min(
+        triangle_area(p1, p2, p3) 
+        for p1, p2, p3 in itertools.combinations(points, 3)
+    )
+    
+    # Normalize by container triangle area
+    container_area = triangle_area(
+        np.array([0, 0]), 
+        np.array([1, 0]), 
+        np.array([0.5, np.sqrt(3)/2])
+    )
+    min_area_normalized = min_area / container_area
+    
+    return {
+        "min_area_normalized": float(min_area_normalized),
+        "combined_score": float(min_area_normalized / BENCHMARK)
+    }
+```
+</CodeGroup>
+
+### Running the Example
+
+```bash
+cd benchmarks/math/heilbronn_triangle
+
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+## All Math Benchmarks
+
+<AccordionGroup>
+  <Accordion title="Signal Processing" icon="wave-square">
+    **Path:** `benchmarks/math/signal_processing/`
+    
+    Real-time adaptive filtering for non-stationary time series. Evolve filter coefficients and adaptation strategies.
+  </Accordion>
+  
+  <Accordion title="Autocorrelation Inequalities" icon="chart-line">
+    **Paths:** 
+    - `benchmarks/math/first_autocorr_ineq/` (B.1)
+    - `benchmarks/math/second_autocorr_ineq/` (B.2)  
+    - `benchmarks/math/third_autocorr_ineq/` (B.3)
+    
+    Upper and lower bounds on autoconvolution constants from AlphaEvolve Appendix B.
+  </Accordion>
+  
+  <Accordion title="Uncertainty Inequality" icon="calculator">
+    **Path:** `benchmarks/math/uncertainty_ineq/` (B.4)
+    
+    Upper bound on Fourier uncertainty constant.
+  </Accordion>
+  
+  <Accordion title="Erdos Minimum Overlap" icon="circle-nodes">
+    **Path:** `benchmarks/math/erdos_min_overlap/` (B.5)
+    
+    Upper bound on Erdos minimum overlap constant.
+  </Accordion>
+  
+  <Accordion title="Sums/Differences of Finite Sets" icon="table">
+    **Path:** `benchmarks/math/sums_diffs_finite_sets/` (B.6)
+    
+    Lower bound on the size of sums and differences of finite sets.
+  </Accordion>
+  
+  <Accordion title="Hexagon Packing" icon="hexagon">
+    **Paths:**
+    - `benchmarks/math/hexagon_packing/11/` (n=11)
+    - `benchmarks/math/hexagon_packing/12/` (n=12)
+    
+    Pack unit hexagons in a regular hexagon (B.7).
+  </Accordion>
+  
+  <Accordion title="Max/Min Distance" icon="ruler">
+    **Path:** `benchmarks/math/minimizing_max_min_dist/`
+    
+    Minimize the ratio of maximum to minimum pairwise distances (B.8).
+  </Accordion>
+  
+  <Accordion title="Heilbronn Convex" icon="shapes">
+    **Paths:**
+    - `benchmarks/math/heilbronn_convex/13/` (n=13)
+    - `benchmarks/math/heilbronn_convex/14/` (n=14)
+    
+    Heilbronn problem for convex regions (B.10).
+  </Accordion>
+  
+  <Accordion title="Circle Packing in Rectangle" icon="square">
+    **Path:** `benchmarks/math/circle_packing_rect/`
+    
+    Pack circles in a rectangle of perimeter 4 (B.13).
+  </Accordion>
+  
+  <Accordion title="Matrix Multiplication" icon="table-cells">
+    **Path:** `benchmarks/math/matmul/`
+    
+    Faster algorithms for matrix multiplication (Appendix A).
+  </Accordion>
+</AccordionGroup>
+
+## Tips for Math Benchmarks
+
+<CardGroup cols={2}>
+  <Card title="Start Simple" icon="seedling">
+    Begin with simple geometric patterns. Evolution will refine them.
+  </Card>
+  
+  <Card title="Use Validation" icon="shield-check">
+    Always validate solutions satisfy constraints before scoring.
+  </Card>
+  
+  <Card title="Normalize Scores" icon="scale-balanced">
+    Compare against known benchmarks (like AlphaEvolve results).
+  </Card>
+  
+  <Card title="Handle Edge Cases" icon="triangle-exclamation">
+    Check for NaN values, invalid shapes, and numerical instability.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Systems Examples" icon="server" href="/examples/systems-optimization">
+    Explore systems optimization
+  </Card>
+  <Card title="Algorithm Examples" icon="code" href="/examples/algorithm-design">
+    See competitive programming
+  </Card>
+  <Card title="Create Custom" icon="plus" href="/examples/custom-problems">
+    Build your own benchmark
+  </Card>
+</CardGroup>

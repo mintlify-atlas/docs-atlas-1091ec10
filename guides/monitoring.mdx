@@ -1,0 +1,465 @@
+---
+title: Monitoring
+description: Watch your discovery runs in real-time with the live dashboard
+---
+
+## Overview
+
+SkyDiscover includes a live monitoring dashboard that visualizes solutions as they're discovered. Watch the evolutionary process unfold in real-time with:
+
+- **Scatter plot** of all programs by score and iteration
+- **Lineage arrows** showing parent-child relationships
+- **Code inspection** for any program
+- **Metrics charts** tracking progress over time
+- **AI-generated summaries** of top solutions
+- **Human-in-the-loop feedback** interface
+
+
+## Quick Start
+
+### Enable Monitoring
+
+Add to your config:
+
+```yaml config.yaml
+monitor:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+```
+
+Run your discovery:
+
+```bash
+skydiscover-run init.py eval.py -c config.yaml -s adaevolve -i 100
+```
+
+Open your browser:
+
+```
+http://localhost:8765
+```
+
+<Tip>
+The dashboard URL is printed when the run starts:
+```
+Live monitor: http://localhost:8765/
+```
+</Tip>
+
+## Configuration
+
+### Basic Settings
+
+```yaml config.yaml
+monitor:
+  enabled: true              # Enable/disable dashboard
+  host: "127.0.0.1"          # Server host (use 0.0.0.0 for remote access)
+  port: 8765                 # Server port
+  max_solution_length: 10000 # Truncate long solutions in UI
+```
+
+### AI Summaries
+
+Generate natural-language summaries of top solutions:
+
+```yaml config.yaml
+monitor:
+  enabled: true
+  
+  # AI summary settings
+  summary_model: "gpt-5-mini"
+  summary_api_key: null      # Defaults to OPENAI_API_KEY
+  summary_api_base: "https://api.openai.com/v1"
+  summary_top_k: 3           # Summarize top-3 programs
+  summary_interval: 0        # Auto-generate every N programs (0 = manual only)
+```
+
+**Usage:**
+- Set `summary_interval: 10` to auto-generate summaries every 10 programs
+- Set `summary_interval: 0` for manual generation via dashboard button
+
+### Human Feedback
+
+Provide guidance during the run:
+
+```yaml config.yaml
+human_feedback_enabled: true
+human_feedback_file: "human_feedback.md"
+human_feedback_mode: "append"  # "append" or "replace"
+
+monitor:
+  enabled: true
+```
+
+Write feedback in Markdown:
+
+```markdown human_feedback.md
+# Iteration 15
+
+The circle packing is too dense in the center. Try spreading circles more evenly
+across the square.
+
+# Iteration 22
+
+Good improvement! Now focus on optimizing corner utilization.
+```
+
+The LLM sees this feedback in subsequent generations.
+
+## Dashboard Features
+
+### Scatter Plot
+
+
+- **X-axis:** Iteration number
+- **Y-axis:** Combined score
+- **Color:** Score gradient (red = low, green = high)
+- **Arrows:** Lineage (parent → child)
+- **Hover:** Show program details
+- **Click:** Inspect full code
+
+### Metrics Panel
+
+
+Real-time stats:
+
+- **Best Score:** Current best `combined_score`
+- **Programs Evaluated:** Total programs tested
+- **Success Rate:** % of valid programs
+- **Average Improvement:** Mean score increase per iteration
+- **Runtime:** Elapsed time
+
+### Code Inspector
+
+
+Click any point to view:
+
+- Full source code with syntax highlighting
+- All metrics from evaluator
+- Generation timestamp
+- Parent program ID
+- LLM model used
+
+### Progress Chart
+
+
+Tracks score evolution:
+
+- **Best Score Line:** Monotonically increasing
+- **Current Score Points:** All evaluated programs
+- **Moving Average:** Smoothed trend
+
+### AI Summary Panel
+
+Click "Generate Summary" to analyze top programs:
+
+
+```
+Top 3 Solutions Summary:
+
+1. Program #87 (score: 0.945)
+   - Uses hexagonal packing in the center
+   - Optimizes corner utilization with smaller circles
+   - Achieves 94.5% of theoretical maximum
+
+2. Program #72 (score: 0.923)
+   - Similar to #87 but with uniform circle sizes
+   - Simpler implementation, slightly lower score
+   - Good baseline for further optimization
+
+3. Program #64 (score: 0.901)
+   - Grid-based approach
+   - Faster evaluation but lower density
+   - Useful for understanding trade-offs
+```
+
+## Remote Access
+
+### SSH Tunnel
+
+If running on a remote server, forward the port:
+
+```bash
+# On your local machine
+ssh -L 8765:localhost:8765 user@remote-server
+```
+
+Then open `http://localhost:8765` locally.
+
+### Public Access
+
+<Warning>
+Only expose the dashboard on trusted networks. It has no authentication.
+</Warning>
+
+```yaml config.yaml
+monitor:
+  enabled: true
+  host: "0.0.0.0"  # Listen on all interfaces
+  port: 8765
+```
+
+Access via server IP:
+
+```
+http://192.168.1.100:8765
+```
+
+## Programmatic Access
+
+### Python API
+
+The monitor can be used programmatically:
+
+```python
+from skydiscover import run_discovery
+from skydiscover.config import Config, MonitorConfig
+
+config = Config()
+config.monitor = MonitorConfig(
+    enabled=True,
+    port=8765,
+    summary_model="gpt-4o-mini",
+    summary_interval=10,  # Auto-generate every 10 programs
+)
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    config=config,
+    iterations=100,
+)
+```
+
+### Custom Callbacks
+
+Extend monitoring with custom callbacks:
+
+```python
+from skydiscover.extras.monitor import create_monitor_callback, MonitorServer
+
+def my_callback(event: dict):
+    """Custom event handler."""
+    if event["type"] == "program_evaluated":
+        print(f"Program {event['id']}: score={event['score']}")
+        # Send to external logging service, etc.
+
+monitor_server = MonitorServer(port=8765)
+monitor_server.start()
+
+monitor_callback = create_monitor_callback(monitor_server, custom_handler=my_callback)
+
+# Pass to runner
+runner = Runner(
+    initial_program_path="init.py",
+    evaluation_file="eval.py",
+    config=config,
+    output_dir="./outputs",
+)
+runner.monitor_callback = monitor_callback
+
+await runner.run(iterations=100)
+```
+
+## Event Stream
+
+The dashboard receives WebSocket events:
+
+<ResponseField name="program_created" type="object">
+  Sent when a new program is generated
+  
+  ```json
+  {
+    "type": "program_created",
+    "id": 42,
+    "iteration": 15,
+    "parent_id": 38,
+    "solution": "def solve(...)...",
+    "model": "gpt-5"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="program_evaluated" type="object">
+  Sent when evaluation completes
+  
+  ```json
+  {
+    "type": "program_evaluated",
+    "id": 42,
+    "score": 0.87,
+    "metrics": {
+      "combined_score": 0.87,
+      "accuracy": 0.92,
+      "speed": 1.3
+    }
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="iteration_complete" type="object">
+  Sent after each iteration
+  
+  ```json
+  {
+    "type": "iteration_complete",
+    "iteration": 15,
+    "best_score": 0.92,
+    "programs_evaluated": 158
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="discovery_complete" type="object">
+  Sent when run finishes
+  
+  ```json
+  {
+    "type": "discovery_complete",
+    "best_score": 0.95,
+    "total_iterations": 100,
+    "runtime": 3600
+  }
+  ```
+</ResponseField>
+
+## Offline Viewer
+
+Replay completed runs without re-running discovery:
+
+```bash
+skydiscover-viewer outputs/adaevolve/circle_packing_0305_1430/
+```
+
+This starts a read-only dashboard showing the saved run data.
+
+<Note>
+The offline viewer is coming in a future release. For now, use the live monitor during runs.
+</Note>
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Reduce Solution Length">
+    Long solutions slow down the dashboard:
+    
+    ```yaml
+    monitor:
+      max_solution_length: 5000  # Truncate at 5000 chars
+    ```
+  </Accordion>
+  
+  <Accordion title="Disable Auto-Summaries">
+    AI summaries use API credits:
+    
+    ```yaml
+    monitor:
+      summary_interval: 0  # Manual generation only
+    ```
+  </Accordion>
+  
+  <Accordion title="Limit Event Rate">
+    For very fast evaluations, batch events:
+    
+    ```python
+    # Coming in future release
+    monitor:
+      event_batch_size: 10
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Dashboard Not Loading">
+    **Check server logs:**
+    ```
+    INFO: Live monitor: http://localhost:8765/
+    ```
+    
+    **Verify port is free:**
+    ```bash
+    lsof -i :8765
+    ```
+    
+    **Try different port:**
+    ```yaml
+    monitor:
+      port: 8766
+    ```
+  </Accordion>
+  
+  <Accordion title="Connection Lost">
+    WebSocket disconnected — refresh the page. The dashboard automatically reconnects.
+  </Accordion>
+  
+  <Accordion title="Summaries Not Generating">
+    **Check API key:**
+    ```bash
+    echo $OPENAI_API_KEY
+    ```
+    
+    **Verify model:**
+    ```yaml
+    monitor:
+      summary_model: "gpt-4o-mini"  # Must be valid model
+    ```
+    
+    **Check logs for errors:**
+    ```
+    WARNING: Failed to generate summary: ...
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Examples
+
+<CodeGroup>
+
+```yaml Basic Monitoring
+monitor:
+  enabled: true
+  port: 8765
+```
+
+```yaml With AI Summaries
+monitor:
+  enabled: true
+  port: 8765
+  summary_model: "gpt-4o-mini"
+  summary_top_k: 5
+  summary_interval: 15  # Every 15 programs
+```
+
+```yaml With Human Feedback
+monitor:
+  enabled: true
+  port: 8765
+
+human_feedback_enabled: true
+human_feedback_file: "feedback.md"
+human_feedback_mode: "append"
+```
+
+```yaml Remote Access
+monitor:
+  enabled: true
+  host: "0.0.0.0"  # Public access
+  port: 8765
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Full monitoring configuration reference
+  </Card>
+  
+  <Card title="Running Discovery" icon="rocket" href="/guides/running-discovery">
+    Start a monitored discovery run
+  </Card>
+</CardGroup>

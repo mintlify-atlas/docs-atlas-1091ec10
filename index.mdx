@@ -1,97 +1,356 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "SkyDiscover Documentation"
+description: "A flexible framework for AI-driven scientific and algorithmic discovery using LLM-powered evolutionary algorithms"
+mode: "custom"
 ---
 
-## Setting up
+{/* Hero Section */}
+<div className="relative bg-gradient-to-br from-[#1a1d27] via-[#0f1117] to-[#1a1d27] dark:bg-gradient-to-br dark:from-[#1a1d27] dark:via-[#0f1117] dark:to-[#1a1d27] py-20 overflow-hidden">
+  <div className="max-w-6xl mx-auto px-6 relative z-10">
+    <div className="grid lg:grid-cols-12 gap-8 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-5xl lg:text-6xl font-bold text-white dark:text-white mb-6">
+          AI-Driven Scientific Discovery
+        </h1>
+        <p className="text-xl text-gray-300 dark:text-gray-300 mb-8 max-w-2xl">
+          SkyDiscover is a modular framework for algorithmic discovery, providing a unified interface for implementing and comparing LLM-powered evolutionary algorithms across 200+ optimization tasks.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a 
+            href="/quickstart"
+            className="inline-flex items-center px-6 py-3 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-semibold rounded-lg transition-colors"
+          >
+            Get Started
+          </a>
+          <a 
+            href="/concepts/overview"
+            className="inline-flex items-center px-6 py-3 border border-white/30 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors"
+          >
+            Core Concepts
+          </a>
+          <a 
+            href="/api/run-discovery"
+            className="inline-flex items-center px-6 py-3 border border-white/30 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors"
+          >
+            API Reference
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="relative p-6 bg-[#1a1d27]/80 dark:bg-[#1a1d27]/80 border border-[#27272a] dark:border-[#27272a] rounded-2xl backdrop-blur-sm">
+          <div className="text-sm text-gray-400 dark:text-gray-400 mb-2">Quick Example</div>
+          <pre className="text-sm text-gray-200 dark:text-gray-200 overflow-x-auto">
+{`from skydiscover import run_discovery
 
-Get your documentation site up and running in minutes.
+result = run_discovery(
+    evaluator="evaluator.py",
+    initial_program="program.py",
+    search="adaevolve",
+    model="gpt-5",
+    iterations=100
+)
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+print(result.best_score)
+# 0.9847`}
+          </pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-## Make it yours
+{/* Quick Start Section */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Quick Start
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get up and running with SkyDiscover in minutes
+  </p>
+  
+  <Steps>
+    <Step title="Install SkyDiscover">
+      Install using uv (Python 3.10+):
+      
+      ```bash
+      uv sync
+      export OPENAI_API_KEY="your-key"
+      ```
+      
+      Or install extras for specific benchmarks:
+      
+      ```bash
+      uv sync --extra math --extra adrs
+      ```
+    </Step>
+    
+    <Step title="Create an Evaluator">
+      Write a scoring function that evaluates program quality:
+      
+      ```python evaluator.py
+      def evaluate(program_path):
+          score = run_and_grade(program_path)
+          return {
+              "combined_score": score,
+              "artifacts": {
+                  "feedback": "Performance details here"
+              }
+          }
+      ```
+    </Step>
+    
+    <Step title="Run Discovery">
+      Launch the optimization process:
+      
+      ```bash
+      uv run skydiscover-run initial_program.py evaluator.py \
+        --search adaevolve \
+        --iterations 100
+      ```
+      
+      <Accordion title="View example output">
+        ```
+        Iteration 1/100: score=0.6543
+        Iteration 2/100: score=0.7012
+        ...
+        Iteration 100/100: score=0.9847
+        
+        Best solution saved to: outputs/best_solution.py
+        ```
+      </Accordion>
+    </Step>
+  </Steps>
+</div>
 
-Design a docs site that looks great and empowers your users.
+{/* Features Grid */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Key Features
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Everything you need for AI-driven algorithmic discovery
+  </p>
+  
+  <CardGroup cols={2}>
+    <Card title="AdaEvolve Algorithm" icon="brain" href="/algorithms/adaevolve">
+      Multi-island adaptive search with UCB selection, migration strategies, and paradigm breakthroughs
+    </Card>
+    <Card title="EvoX Algorithm" icon="sparkles" href="/algorithms/evox">
+      Self-evolving optimization that co-adapts solution generation and experience management
+    </Card>
+    <Card title="200+ Benchmarks" icon="chart-line" href="/guides/benchmarks">
+      Math optimization, systems challenges, and programming problems across diverse domains
+    </Card>
+    <Card title="Multi-Model Support" icon="server" href="/guides/model-providers">
+      OpenAI, Gemini, Anthropic, and local models with weighted sampling strategies
+    </Card>
+    <Card title="Real-Time Monitoring" icon="gauge" href="/guides/monitoring">
+      Live dashboard with scatter plots, code diffs, and human feedback integration
+    </Card>
+    <Card title="Modular Architecture" icon="cubes" href="/extending/custom-algorithms">
+      Pluggable search algorithms, context builders, and evaluation pipelines
+    </Card>
+  </CardGroup>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+{/* Explore by Topic */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Explore by Topic
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Dive deeper into specific areas
+  </p>
+  
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <a href="/concepts/algorithms" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#3B82F6] dark:hover:border-[#3B82F6] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">
+          Search Algorithms
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Explore AdaEvolve, EvoX, TopK, Beam Search, and other optimization strategies
+        </p>
+        <div className="text-sm text-[#3B82F6] group-hover:text-[#2563EB] font-medium flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/guides/writing-evaluators" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#3B82F6] dark:hover:border-[#3B82F6] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">
+          Writing Evaluators
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Learn how to create effective scoring functions and provide feedback to guide evolution
+        </p>
+        <div className="text-sm text-[#3B82F6] group-hover:text-[#2563EB] font-medium flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/examples/overview" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#3B82F6] dark:hover:border-[#3B82F6] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">
+          Example Projects
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Real-world examples from math optimization to systems design and algorithm discovery
+        </p>
+        <div className="text-sm text-[#3B82F6] group-hover:text-[#2563EB] font-medium flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/extending/custom-algorithms" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#3B82F6] dark:hover:border-[#3B82F6] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">
+          Extending SkyDiscover
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Build custom search algorithms, benchmarks, and context builders
+        </p>
+        <div className="text-sm text-[#3B82F6] group-hover:text-[#2563EB] font-medium flex items-center">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
 
-## Create beautiful pages
+{/* Research Papers */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Research & Publications
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    SkyDiscover is backed by peer-reviewed research
+  </p>
+  
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="p-6 bg-gray-50 dark:bg-[#1a1d27] border border-gray-200 dark:border-[#27272a] rounded-2xl">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        AdaEvolve Paper
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Multi-island adaptive evolutionary search with UCB selection and paradigm breakthroughs
+      </p>
+      <a href="https://arxiv.org/abs/2602.20133" target="_blank" rel="noopener noreferrer" className="text-sm text-[#3B82F6] hover:text-[#2563EB] font-medium">
+        Read on arXiv →
+      </a>
+    </div>
+    
+    <div className="p-6 bg-gray-50 dark:bg-[#1a1d27] border border-gray-200 dark:border-[#27272a] rounded-2xl">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        EvoX Paper
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Self-evolving optimization that dynamically adapts the evolution strategy using LLMs
+      </p>
+      <a href="https://arxiv.org/abs/2602.23413" target="_blank" rel="noopener noreferrer" className="text-sm text-[#3B82F6] hover:text-[#2563EB] font-medium">
+        Read on arXiv →
+      </a>
+    </div>
+  </div>
+</div>
 
-Everything you need to create world-class documentation.
+{/* Benchmark Performance */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Benchmark Performance
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    State-of-the-art results across diverse optimization tasks
+  </p>
+  
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="p-6 bg-gray-50 dark:bg-[#1a1d27] border border-gray-200 dark:border-[#27272a] rounded-2xl">
+      <div className="text-3xl font-bold text-[#3B82F6] mb-2">~34%</div>
+      <div className="text-sm text-gray-900 dark:text-white font-medium mb-1">Score Improvement</div>
+      <div className="text-sm text-gray-600 dark:text-gray-400">
+        Median improvement over OpenEvolve, GEPA, and ShinkaEvolve on Frontier-CS
+      </div>
+    </div>
+    
+    <div className="p-6 bg-gray-50 dark:bg-[#1a1d27] border border-gray-200 dark:border-[#27272a] rounded-2xl">
+      <div className="text-3xl font-bold text-[#3B82F6] mb-2">172</div>
+      <div className="text-sm text-gray-900 dark:text-white font-medium mb-1">Frontier-CS Problems</div>
+      <div className="text-sm text-gray-600 dark:text-gray-400">
+        Competitive programming challenges with strong open-source results
+      </div>
+    </div>
+    
+    <div className="p-6 bg-gray-50 dark:bg-[#1a1d27] border border-gray-200 dark:border-[#27272a] rounded-2xl">
+      <div className="text-3xl font-bold text-[#3B82F6] mb-2">12/14</div>
+      <div className="text-sm text-gray-900 dark:text-white font-medium mb-1">SOTA Performance</div>
+      <div className="text-sm text-gray-600 dark:text-gray-400">
+        Matches or exceeds human-designed SOTA on math and systems tasks
+      </div>
+    </div>
+  </div>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+{/* Community & Resources */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Community & Resources
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get help and stay connected
+  </p>
+  
+  <CardGroup cols={3}>
+    <Card title="GitHub" icon="github" href="https://github.com/skydiscover-ai/skydiscover">
+      Star the repo, report issues, and contribute to the project
+    </Card>
+    <Card title="Blog" icon="newspaper" href="https://skydiscover-ai.github.io/blog.html">
+      Read about the latest updates, research, and use cases
+    </Card>
+    <Card title="Contact" icon="envelope" href="mailto:lshu@berkeley.edu">
+      Reach out to the team for questions or collaboration
+    </Card>
+  </CardGroup>
+</div>
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+{/* Closing CTA */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="bg-gradient-to-r from-[#3B82F6] to-[#2563EB] rounded-2xl p-8 md:p-12 text-center">
+    <h2 className="text-3xl font-bold text-white mb-4">
+      Ready to Start Discovering?
+    </h2>
+    <p className="text-lg text-white/90 mb-8 max-w-2xl mx-auto">
+      Join researchers and engineers using SkyDiscover to push the boundaries of algorithmic optimization
+    </p>
+    <div className="flex flex-wrap justify-center gap-4">
+      <a 
+        href="/quickstart"
+        className="inline-flex items-center px-6 py-3 bg-white text-[#3B82F6] hover:bg-gray-100 font-semibold rounded-lg transition-colors"
+      >
+        Get Started Now
+      </a>
+      <a 
+        href="https://github.com/skydiscover-ai/skydiscover"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center px-6 py-3 border border-white/30 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors"
+      >
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</div>

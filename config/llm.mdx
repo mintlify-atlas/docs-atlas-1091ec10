@@ -1,0 +1,373 @@
+---
+title: LLM Configuration
+description: Configure language models, API settings, and generation parameters for SkyDiscover
+icon: brain
+---
+
+## Overview
+
+The `llm` section controls all language model settings including API endpoints, model selection, generation parameters, and retry behavior.
+
+## Basic Configuration
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+  api_base: "https://api.openai.com/v1"
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 32000
+  timeout: 600
+```
+
+## Model Configuration
+
+### Single Model
+
+Configure a single model for solution generation:
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 1.0
+```
+
+### Multiple Models
+
+Use multiple models with weighted sampling:
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.7
+    - name: "claude-opus-3"
+      weight: 0.3
+```
+
+SkyDiscover randomly samples models based on their weights. In this example, `gpt-5` is selected 70% of the time.
+
+### Provider-Specific Models
+
+Use the `provider/model` format to specify different providers:
+
+```yaml
+llm:
+  models:
+    - name: "openai/gpt-5"
+      weight: 0.5
+    - name: "anthropic/claude-opus-3"
+      weight: 0.3
+    - name: "gemini/gemini-3-pro"
+      weight: 0.2
+```
+
+## Supported Providers
+
+SkyDiscover supports multiple LLM providers with automatic API base URL and key resolution:
+
+<AccordionGroup>
+  <Accordion title="OpenAI" icon="openai">
+    ```yaml
+    llm:
+      models:
+        - name: "gpt-5"
+        - name: "gpt-5-mini"
+        - name: "o1"
+      api_base: "https://api.openai.com/v1"
+    ```
+    
+    Environment variables: `OPENAI_API_KEY`
+    
+    Automatically detected for models starting with: `gpt-`, `o1`, `o3`, `o4`
+  </Accordion>
+  
+  <Accordion title="Anthropic (Claude)" icon="robot">
+    ```yaml
+    llm:
+      models:
+        - name: "anthropic/claude-opus-3"
+        - name: "anthropic/claude-sonnet-5"
+      # api_base auto-configured
+    ```
+    
+    Environment variables: `ANTHROPIC_API_KEY`
+    
+    Automatically detected for models starting with: `claude-`
+  </Accordion>
+  
+  <Accordion title="Google Gemini" icon="google">
+    ```yaml
+    llm:
+      models:
+        - name: "gemini/gemini-3-pro"
+      api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    ```
+    
+    Environment variables: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
+    
+    Automatically detected for models starting with: `gemini-`
+  </Accordion>
+  
+  <Accordion title="DeepSeek" icon="brain">
+    ```yaml
+    llm:
+      models:
+        - name: "deepseek/deepseek-chat"
+      api_base: "https://api.deepseek.com/v1"
+    ```
+    
+    Environment variables: `DEEPSEEK_API_KEY`
+    
+    Automatically detected for models starting with: `deepseek-`
+  </Accordion>
+  
+  <Accordion title="Mistral" icon="wind">
+    ```yaml
+    llm:
+      models:
+        - name: "mistral/mistral-large"
+      api_base: "https://api.mistral.ai/v1"
+    ```
+    
+    Environment variables: `MISTRAL_API_KEY`
+    
+    Automatically detected for models starting with: `mistral-`
+  </Accordion>
+  
+  <Accordion title="Ollama (Local)" icon="server">
+    ```yaml
+    llm:
+      models:
+        - name: "ollama/llama3"
+          api_base: "http://localhost:11434/v1"
+      # No API key required
+    ```
+    
+    No environment variables required. Specify api_base for your local Ollama instance.
+  </Accordion>
+  
+  <Accordion title="vLLM (Local)" icon="server">
+    ```yaml
+    llm:
+      models:
+        - name: "vllm/custom-model"
+          api_base: "http://localhost:8000/v1"
+      # No API key required
+    ```
+    
+    No environment variables required. Specify api_base for your vLLM server.
+  </Accordion>
+</AccordionGroup>
+
+## LLMConfig Parameters
+
+Defined in `skydiscover/config.py:151-224`
+
+### API Settings
+
+<ParamField path="api_base" type="str" default="https://api.openai.com/v1">
+  Base URL for the LLM API endpoint
+</ParamField>
+
+<ParamField path="api_key" type="str" default="None">
+  API key for authentication. Auto-resolved from environment if not specified
+</ParamField>
+
+### Model Selection
+
+<ParamField path="models" type="List[LLMModelConfig]" default="[]">
+  List of models for solution generation. Each model can have individual settings
+</ParamField>
+
+<ParamField path="evaluator_models" type="List[LLMModelConfig]" default="[]">
+  Models for evaluation. Defaults to same as `models` if not specified
+</ParamField>
+
+<ParamField path="guide_models" type="List[LLMModelConfig]" default="[]">
+  Models for guide tasks (idea generation, paradigm breakthroughs). Defaults to `models`
+</ParamField>
+
+### Generation Parameters
+
+<ParamField path="temperature" type="float" default="0.7">
+  Sampling temperature (0.0-2.0). Higher values increase randomness
+</ParamField>
+
+<ParamField path="top_p" type="float" default="0.95">
+  Nucleus sampling threshold (0.0-1.0). Alternative to temperature
+</ParamField>
+
+<ParamField path="max_tokens" type="int" default="32000">
+  Maximum tokens to generate in a single completion
+</ParamField>
+
+<ParamField path="system_message" type="str" default="system_message">
+  System message for the model. Usually set in `prompt` section instead
+</ParamField>
+
+### Request Parameters
+
+<ParamField path="timeout" type="int" default="600">
+  Request timeout in seconds
+</ParamField>
+
+<ParamField path="retries" type="int" default="3">
+  Number of retry attempts on failure
+</ParamField>
+
+<ParamField path="retry_delay" type="int" default="5">
+  Delay in seconds between retries
+</ParamField>
+
+### Reasoning Parameters
+
+<ParamField path="reasoning_effort" type="str" default="None">
+  Reasoning effort level for o1-series models: `low`, `medium`, or `high`
+</ParamField>
+
+## LLMModelConfig Parameters
+
+Per-model configuration (defined in `skydiscover/config.py:121-148`):
+
+<ParamField path="name" type="str" default="None">
+  Model identifier (e.g., `gpt-5`, `anthropic/claude-opus-3`)
+</ParamField>
+
+<ParamField path="weight" type="float" default="1.0">
+  Sampling weight for this model in the pool
+</ParamField>
+
+<ParamField path="api_base" type="str" default="None">
+  Override API base URL for this specific model
+</ParamField>
+
+<ParamField path="api_key" type="str" default="None">
+  Override API key for this specific model
+</ParamField>
+
+<ParamField path="init_client" type="Callable" default="None">
+  Custom LLM client initialization function
+</ParamField>
+
+All generation and request parameters can also be overridden per-model.
+
+## Advanced Examples
+
+### LLM-as-a-Judge
+
+Use separate models for generation and evaluation:
+
+```yaml configs/llm_judge.yaml
+llm:
+  # Fast model for generation
+  models:
+    - name: "gpt-4o-mini"
+      weight: 1.0
+  
+  # Powerful model for evaluation
+  evaluator_models:
+    - name: "gpt-5"
+      weight: 1.0
+  
+  temperature: 0.7
+  max_tokens: 16000
+```
+
+### Mixed Provider Setup
+
+```yaml
+llm:
+  models:
+    - name: "gpt-5"
+      weight: 0.5
+      api_base: "https://api.openai.com/v1"
+      api_key: ${OPENAI_API_KEY}
+    
+    - name: "claude-opus-3"
+      weight: 0.3
+      api_base: "https://api.anthropic.com/v1"
+      api_key: ${ANTHROPIC_API_KEY}
+    
+    - name: "llama3"
+      weight: 0.2
+      api_base: "http://localhost:11434/v1"
+      temperature: 0.8  # Per-model override
+  
+  temperature: 0.7
+  max_tokens: 32000
+```
+
+### Reasoning Models (o1-series)
+
+```yaml
+llm:
+  models:
+    - name: "o1"
+      weight: 1.0
+  reasoning_effort: "high"  # low, medium, or high
+  max_tokens: 100000
+```
+
+## CLI Overrides
+
+Override model settings from the command line:
+
+```bash
+# Override model
+skydiscover-run program.py evaluator.py -m gpt-5-mini
+
+# Multiple models
+skydiscover-run program.py evaluator.py -m "gpt-5,claude-opus-3"
+
+# Override API base
+skydiscover-run program.py evaluator.py --api-base http://localhost:8000/v1
+
+# Both
+skydiscover-run program.py evaluator.py \
+  -m gemini-3-pro \
+  --api-base https://generativelanguage.googleapis.com/v1beta/openai/
+```
+
+See `skydiscover/config.py:819-910` for override implementation.
+
+## Environment Variables
+
+Provider-specific API keys are automatically resolved:
+
+```bash
+# OpenAI
+export OPENAI_API_KEY="sk-..."
+
+# Anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Google Gemini
+export GEMINI_API_KEY="..."
+export GOOGLE_API_KEY="..."  # Alternative
+
+# DeepSeek
+export DEEPSEEK_API_KEY="..."
+
+# Mistral
+export MISTRAL_API_KEY="..."
+
+# Custom API base
+export OPENAI_API_BASE="http://localhost:8000/v1"
+export OPENAI_BASE_URL="http://localhost:8000/v1"  # Alternative
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Prompt Configuration" icon="message" href="/config/prompt">
+    Configure system messages and prompt templates
+  </Card>
+  
+  <Card title="Search Configuration" icon="magnifying-glass" href="/config/search">
+    Configure evolutionary search algorithms
+  </Card>
+</CardGroup>

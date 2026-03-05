@@ -1,0 +1,399 @@
+---
+title: 'GEPA Native'
+description: 'Pareto-efficient search with reflective prompting and LLM-mediated merge'
+icon: 'merge'
+---
+
+## Overview
+
+GEPA (Genetic Evolution with Pareto Acceptance) Native is a SkyDiscover implementation of the GEPA algorithm featuring three core innovations: reflective prompting, acceptance gating, and LLM-mediated merge operations.
+
+<CardGroup cols={3}>
+  <Card title="Reflective Prompting" icon="comments">
+    Surfaces evaluator diagnostics and rejected programs as actionable feedback
+  </Card>
+  <Card title="Acceptance Gating" icon="shield-check">
+    Rejects mutations that don't strictly improve on the parent
+  </Card>
+  <Card title="LLM-Mediated Merge" icon="code-merge">
+    Combines complementary programs to escape local optima
+  </Card>
+</CardGroup>
+
+## Key Concepts
+
+### 1. Reflective Prompting
+
+Unlike standard prompting which only shows successful programs, GEPA includes **rejection history** in the prompt:
+
+- Recently rejected programs and their scores
+- Why they were rejected (lower than parent)
+- Evaluator diagnostics from failed attempts
+- Error messages and feedback
+
+This teaches the LLM what **doesn't** work, not just what does.
+
+### 2. Acceptance Gating
+
+GEPA only accepts a child program if:
+
+```python
+child_score > parent_score  # Strict improvement required
+```
+
+Rejected children are stored and shown in future prompts as negative examples. This prevents population pollution from lateral or backward moves.
+
+### 3. LLM-Mediated Merge
+
+When progress stagnates or after each acceptance, GEPA merges two complementary programs:
+
+1. **Select candidates**: Pick programs with complementary strengths
+2. **Build merge prompt**: Include both programs, per-metric comparison, diagnostics
+3. **Generate merged solution**: LLM combines the best ideas
+4. **Accept if improved**: Must meet or exceed both parents
+
+## Configuration
+
+### Basic Usage
+
+```bash
+skydiscover-run initial_program.py evaluator.py \
+  --search gepa_native \
+  --iterations 100
+```
+
+### Configuration File
+
+```yaml
+search:
+  type: gepa_native
+  database:
+    # Acceptance gating
+    acceptance_gating: true
+    
+    # LLM-mediated merge
+    use_merge: true
+    merge_after_stagnation: 15    # Iterations without improvement before merge
+    max_merge_attempts: 10         # Total merge budget
+    
+    # Reflective prompting
+    max_recent_failures: 5         # Number of rejected programs to show
+```
+
+## Configuration Options
+
+<ParamField path="acceptance_gating" type="bool" default="true">
+  Enable strict parent-improvement gating. Only accept children that score higher than their parent.
+</ParamField>
+
+<ParamField path="use_merge" type="bool" default="true">
+  Enable LLM-mediated merge operations to combine complementary programs.
+</ParamField>
+
+<ParamField path="merge_after_stagnation" type="int" default="15">
+  Number of iterations without improvement before triggering a stagnation merge.
+</ParamField>
+
+<ParamField path="max_merge_attempts" type="int" default="10">
+  Maximum number of merge operations allowed during the run (budget control).
+</ParamField>
+
+<ParamField path="max_recent_failures" type="int" default="5">
+  Number of recently rejected programs to include in reflective prompting.
+</ParamField>
+
+## How It Works
+
+### Evolution Loop
+
+<Steps>
+  <Step title="Proactive Merge (if scheduled)">
+    Attempt a merge operation scheduled from previous acceptance
+  </Step>
+  
+  <Step title="Generate Mutation">
+    Create a child program from selected parent with reflective prompt
+  </Step>
+  
+  <Step title="Acceptance Gate">
+    Compare child score to parent score:
+    - If `child_score > parent_score`: **Accept** and add to database
+    - Otherwise: **Reject** and add to rejection history
+  </Step>
+  
+  <Step title="Schedule Proactive Merge">
+    If accepted and merge budget allows, schedule merge for next iteration
+  </Step>
+  
+  <Step title="Track Improvement">
+    Update stagnation counter. If stagnant, trigger reactive merge.
+  </Step>
+</Steps>
+
+### Reflective Prompt Structure
+
+The GEPA prompt includes:
+
+```
+[System message with problem description]
+
+[Current parent program and metrics]
+
+[Context programs - successful examples]
+
+--- REFLECTION ON REJECTED ATTEMPTS ---
+
+The following programs were REJECTED for scoring lower than their parents:
+
+1. Program abc123 (score: 0.65, parent score: 0.72)
+   Code: [...]
+   Why rejected: Child scored 0.07 lower than parent
+   
+   Evaluator feedback:
+   - "Failed test case 3: index out of bounds"
+   - "Timeout on large input"
+
+2. Program def456 (score: 0.68, parent score: 0.70)
+   [...]
+
+Learn from these failures and avoid similar mistakes.
+```
+
+### Merge Candidates Selection
+
+GEPA selects merge candidates from the Pareto frontier:
+
+```python
+def get_merge_candidates():
+    # Get Pareto-optimal programs (not dominated on any metric)
+    pareto_programs = get_pareto_frontier()
+    
+    # Pick two with complementary strengths
+    if len(pareto_programs) >= 2:
+        # Sort by different metrics to get diverse solutions
+        return pareto_programs[0], pareto_programs[-1]
+    else:
+        # Fallback: top 2 programs
+        return get_top_programs(2)
+```
+
+## When to Use GEPA Native
+
+<AccordionGroup>
+  <Accordion title="Best For" icon="check">
+    - Problems with rich evaluator feedback (errors, diagnostics, test failures)
+    - Multi-objective optimization (Pareto frontier matters)
+    - When rejection feedback is informative
+    - Problems where merging solutions makes sense (combining algorithmic ideas)
+    - Avoiding population pollution from bad mutations
+  </Accordion>
+  
+  <Accordion title="Avoid When" icon="xmark">
+    - Sparse feedback (just a score, no diagnostics)
+    - Single-objective with no interesting Pareto structure
+    - Very noisy evaluation (acceptance gating may reject good solutions)
+    - Short runs (merge operations need time to show value)
+  </Accordion>
+</AccordionGroup>
+
+## Example
+
+### Algorithm Optimization with Test Feedback
+
+```python
+# evaluator.py - rich feedback example
+def evaluate(program_path):
+    import subprocess
+    
+    # Run test suite
+    result = subprocess.run(
+        ["python", program_path],
+        capture_output=True,
+        timeout=5
+    )
+    
+    # Parse test results
+    output = result.stdout.decode()
+    lines = output.split('\n')
+    
+    passed = sum(1 for line in lines if 'PASS' in line)
+    failed = sum(1 for line in lines if 'FAIL' in line)
+    
+    # Collect failure details
+    failures = [line for line in lines if 'FAIL' in line]
+    
+    return {
+        "combined_score": passed / (passed + failed) if (passed + failed) > 0 else 0,
+        "artifacts": {
+            "feedback": f"{failed} tests failed:\n" + "\n".join(failures[:5])
+        }
+    }
+```
+
+```yaml
+# config.yaml
+search:
+  type: gepa_native
+  database:
+    acceptance_gating: true
+    use_merge: true
+    max_recent_failures: 5  # Show 5 recent failed attempts
+```
+
+```bash
+skydiscover-run initial_algorithm.py evaluator.py \
+  --config config.yaml \
+  --iterations 100
+```
+
+**How it helps**:
+- LLM sees exactly which test cases failed in rejected programs
+- Learns to avoid those specific mistakes
+- Merges programs that pass different subsets of tests
+
+## Merge Operations
+
+### Proactive Merge
+
+Triggered after **each successful acceptance** (if budget allows):
+
+```
+Iteration 10: Accept new program (score: 0.85)
+Iteration 11: Proactive merge (combine best two programs)
+  -> Merged score: 0.88 ✓ Accepted
+Iteration 12: Normal mutation
+```
+
+### Reactive Merge
+
+Triggered after **N iterations without improvement**:
+
+```
+Iteration 20-34: No improvement (stagnation)
+Iteration 35: Reactive merge (try to escape local optimum)
+  -> Merged score: 0.91 ✓ Accepted, resets stagnation
+Iteration 36: Normal mutation
+```
+
+### Merge Deduplication
+
+GEPA tracks which pairs have been merged to avoid redundant operations:
+
+```python
+# Won't merge (prog_a, prog_b) if already tried
+merge_pairs_tried = {
+    ("abc123", "def456"),
+    ("def456", "ghi789"),
+}
+```
+
+## Monitoring GEPA
+
+### Acceptance Rate
+
+Track how many programs are accepted vs. rejected:
+
+```python
+accepted = len(database.programs)
+rejected = len(database.rejection_history)
+
+print(f"Acceptance rate: {accepted / (accepted + rejected):.1%}")
+```
+
+Typical acceptance rates:
+- **10-30%**: Healthy (gate is working)
+- **> 50%**: Gate may be too loose or problem is easy
+- **< 5%**: Gate may be too strict or stuck
+
+### Merge Success Rate
+
+```python
+merge_attempts = controller._merge_attempts_used
+merge_successes = sum(1 for p in database.programs.values() 
+                      if 'merge' in p.metadata.get('changes', '').lower())
+
+print(f"Merge success rate: {merge_successes / merge_attempts:.1%}")
+```
+
+### Rejection History
+
+```python
+rejected_programs = database.get_rejection_history(limit=10)
+
+for prog in rejected_programs:
+    parent = database.programs[prog.parent_id]
+    print(f"Rejected: {prog.metrics['combined_score']:.3f} vs parent {parent.metrics['combined_score']:.3f}")
+```
+
+## Advanced Configuration
+
+### Disable Components
+
+You can disable individual GEPA features:
+
+```yaml
+# Pure reflective prompting (no gating or merge)
+search:
+  type: gepa_native
+  database:
+    acceptance_gating: false
+    use_merge: false
+    max_recent_failures: 10  # Still show rejections as learning
+```
+
+```yaml
+# Acceptance gating only (no merge)
+search:
+  type: gepa_native
+  database:
+    acceptance_gating: true
+    use_merge: false
+```
+
+### Aggressive Merging
+
+```yaml
+# Merge more frequently
+search:
+  type: gepa_native
+  database:
+    merge_after_stagnation: 5    # Merge after just 5 stagnant iterations
+    max_merge_attempts: 20        # Allow more merges
+```
+
+## Comparison with Other Algorithms
+
+| Feature | GEPA Native | AdaEvolve | Top-K |
+|---------|------------|-----------|-------|
+| Reflective prompting | ✅ Yes | ❌ No | ❌ No |
+| Acceptance gating | ✅ Yes | ❌ No | ❌ No |
+| Merge operations | ✅ Yes | ❌ No | ❌ No |
+| Population diversity | Pareto frontier | Islands | Top-K only |
+| Exploration | Controlled by gating | Adaptive | None |
+| Best for | Rich feedback | Complex landscapes | Simple refinement |
+
+## Tips for Best Results
+
+<CardGroup cols={2}>
+  <Card title="Rich Evaluator Feedback" icon="1">
+    GEPA shines when your evaluator returns detailed diagnostics in `artifacts`. Include test failures, error messages, performance breakdowns.
+  </Card>
+  
+  <Card title="Multi-Metric Problems" icon="2">
+    Use multiple metrics in your evaluator. GEPA's Pareto frontier and merge selection work best with 2-5 metrics.
+  </Card>
+  
+  <Card title="Budget Merge Wisely" icon="3">
+    Merge operations are expensive (extra LLM call + eval). Set `max_merge_attempts` based on your iteration budget (10-20% of total).
+  </Card>
+  
+  <Card title="Tune Stagnation Threshold" icon="4">
+    Lower `merge_after_stagnation` for faster merge triggers, higher for more patience. Start with 15 and adjust based on typical improvement frequency.
+  </Card>
+</CardGroup>
+
+## Related Algorithms
+
+- [AdaEvolve](/algorithms/adaevolve) - Island-based adaptive search
+- [EvoX](/algorithms/evox) - Meta-evolves the search strategy
+- [Top-K](/algorithms/topk) - Simple baseline without gating

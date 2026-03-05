@@ -1,0 +1,454 @@
+---
+title: DiscoveryResult
+description: Result object and Program dataclass for discovery runs
+---
+
+## DiscoveryResult Class
+
+```python
+@dataclass
+class DiscoveryResult:
+    """Result of a single discovery run."""
+    
+    best_program: Optional[Program]
+    best_score: float
+    best_solution: str
+    metrics: Dict[str, Any]
+    output_dir: Optional[str]
+    initial_score: Optional[float] = None
+```
+
+## Description
+
+The `DiscoveryResult` dataclass contains all information about a completed discovery run, including the best solution found, its score, detailed metrics, and the location of output files.
+
+## Fields
+
+<ResponseField name="best_program" type="Optional[Program]">
+  The best `Program` object found during discovery, or `None` if no valid programs were produced.
+  
+  Contains detailed information including solution code, metrics, lineage, and metadata.
+</ResponseField>
+
+<ResponseField name="best_score" type="float">
+  Score of the best program. Extracted from the `combined_score` metric or aggregated from other metrics.
+  
+  Always a float value; `0.0` if no valid programs were found.
+</ResponseField>
+
+<ResponseField name="best_solution" type="str">
+  Source code of the best solution as a string.
+  
+  Empty string if no valid programs were found.
+</ResponseField>
+
+<ResponseField name="metrics" type="Dict[str, Any]">
+  Detailed metrics dictionary returned by the evaluator for the best program.
+  
+  Common keys:
+  - `combined_score`: Overall score
+  - Custom metrics defined by your evaluator
+  
+  Empty dictionary if no valid programs were found.
+</ResponseField>
+
+<ResponseField name="output_dir" type="Optional[str]">
+  Path to the directory containing results, logs, and checkpoints.
+  
+  `None` if `cleanup=True` was used (temporary files removed).
+</ResponseField>
+
+<ResponseField name="initial_score" type="Optional[float]">
+  Score of the initial program (if one was provided).
+  
+  `None` if:
+  - No initial program was provided
+  - Initial program evaluation failed
+  - Score could not be determined
+</ResponseField>
+
+## Methods
+
+### __repr__
+
+```python
+def __repr__(self) -> str:
+    """String representation of the result."""
+```
+
+**Returns**: Human-readable string showing best score and initial score.
+
+**Example output**: `DiscoveryResult(best_score=0.8750, initial_score=0.4200)`
+
+## Program Class
+
+```python
+@dataclass
+class Program:
+    """Represents a program in the database."""
+    
+    # Program identification
+    id: str
+    solution: str
+    language: str = "python"
+    
+    # Performance
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    
+    # Tracking information
+    iteration_found: int = 0
+    parent_id: Optional[str] = None
+    other_context_ids: Optional[List[str]] = None
+    parent_info: Optional[Tuple[str, str]] = None
+    context_info: Optional[List[Tuple[str, str]]] = None
+    
+    timestamp: float = field(default_factory=time.time)
+    
+    # Metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    artifacts: Dict[str, Any] = field(default_factory=dict)
+    
+    # Prompts
+    prompts: Optional[Dict[str, Any]] = None
+    generation: int = 0
+```
+
+## Program Fields
+
+<ResponseField name="id" type="str">
+  Unique identifier for the program (UUID).
+</ResponseField>
+
+<ResponseField name="solution" type="str">
+  Source code of the program.
+</ResponseField>
+
+<ResponseField name="language" type="str">
+  Programming language (e.g., "python", "cpp", "javascript").
+  
+  Default: `"python"`
+</ResponseField>
+
+<ResponseField name="metrics" type="Dict[str, Any]">
+  Evaluation metrics returned by the evaluator.
+  
+  Typically includes:
+  - `combined_score`: Overall score used for ranking
+  - Custom metrics specific to your problem
+</ResponseField>
+
+<ResponseField name="iteration_found" type="int">
+  Iteration number when this program was discovered.
+  
+  Default: `0` (initial program)
+</ResponseField>
+
+<ResponseField name="parent_id" type="Optional[str]">
+  ID of the parent program this was mutated from.
+  
+  `None` for initial programs or programs generated from scratch.
+</ResponseField>
+
+<ResponseField name="other_context_ids" type="Optional[List[str]]">
+  List of IDs of other programs provided as context during generation.
+  
+  Used by search algorithms for crossover or learning from multiple examples.
+</ResponseField>
+
+<ResponseField name="parent_info" type="Optional[Tuple[str, str]]">
+  Additional information about the parent program as `(label, description)`.
+</ResponseField>
+
+<ResponseField name="context_info" type="Optional[List[Tuple[str, str]]]">
+  Additional information about context programs as list of `(label, description)` tuples.
+</ResponseField>
+
+<ResponseField name="timestamp" type="float">
+  Unix timestamp when the program was created.
+</ResponseField>
+
+<ResponseField name="metadata" type="Dict[str, Any]">
+  Additional metadata about the program.
+  
+  Example keys:
+  - `image_path`: For image generation tasks
+  - Custom tracking information
+</ResponseField>
+
+<ResponseField name="artifacts" type="Dict[str, Any]">
+  Artifacts produced during evaluation (e.g., test outputs, visualizations).
+</ResponseField>
+
+<ResponseField name="prompts" type="Optional[Dict[str, Any]]">
+  Prompts used to generate this program (if prompt logging is enabled).
+</ResponseField>
+
+<ResponseField name="generation" type="int">
+  Generation number in the evolutionary process.
+  
+  Default: `0`
+</ResponseField>
+
+## Program Methods
+
+### to_dict
+
+```python
+def to_dict(self) -> Dict[str, Any]:
+    """Convert to dictionary representation."""
+```
+
+**Returns**: Dictionary containing all program fields.
+
+### from_dict
+
+```python
+@classmethod
+def from_dict(cls, data: Dict[str, Any]) -> Program:
+    """Create from dictionary representation."""
+```
+
+**Parameters**:
+- `data`: Dictionary containing program fields
+
+**Returns**: New `Program` instance.
+
+## Examples
+
+### Basic Result Inspection
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+print(result)  # DiscoveryResult(best_score=0.8750, initial_score=0.4200)
+print(f"Best score: {result.best_score}")
+print(f"Initial score: {result.initial_score}")
+print(f"Improvement: {result.best_score - result.initial_score:.4f}")
+```
+
+### Accessing Detailed Metrics
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+print("All metrics:")
+for key, value in result.metrics.items():
+    print(f"  {key}: {value}")
+
+# Example output:
+# All metrics:
+#   combined_score: 0.875
+#   accuracy: 0.95
+#   speed: 0.8
+#   memory_usage: 0.85
+```
+
+### Accessing the Program Object
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+if result.best_program:
+    prog = result.best_program
+    print(f"Program ID: {prog.id}")
+    print(f"Found at iteration: {prog.iteration_found}")
+    print(f"Language: {prog.language}")
+    print(f"Generation: {prog.generation}")
+    
+    if prog.parent_id:
+        print(f"Evolved from parent: {prog.parent_id}")
+    
+    if prog.other_context_ids:
+        print(f"Used {len(prog.other_context_ids)} context programs")
+```
+
+### Saving Results
+
+```python
+from skydiscover import run_discovery
+import json
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5",
+    iterations=50,
+    cleanup=False,  # Keep output directory
+)
+
+# Save solution to file
+with open("best_solution.py", "w") as f:
+    f.write(result.best_solution)
+
+# Save metrics to JSON
+with open("metrics.json", "w") as f:
+    json.dump({
+        'best_score': result.best_score,
+        'initial_score': result.initial_score,
+        'metrics': result.metrics,
+        'output_dir': result.output_dir,
+    }, f, indent=2)
+
+print(f"Results saved. Full output in: {result.output_dir}")
+```
+
+### Comparing Multiple Runs
+
+```python
+from skydiscover import run_discovery
+
+results = []
+
+for model in ["gpt-5", "claude-4-sonnet", "gemini/gemini-3-pro"]:
+    result = run_discovery(
+        evaluator="eval.py",
+        initial_program="init.py",
+        model=model,
+        iterations=50,
+    )
+    results.append((model, result))
+
+# Compare results
+print("Model Comparison:")
+for model, result in results:
+    improvement = result.best_score - (result.initial_score or 0)
+    print(f"{model:20s}: {result.best_score:.4f} (+{improvement:.4f})")
+
+# Find best model
+best_model, best_result = max(results, key=lambda x: x[1].best_score)
+print(f"\nBest model: {best_model}")
+print(f"Best solution:\n{best_result.best_solution}")
+```
+
+### Working with Program Lineage
+
+```python
+from skydiscover.runner import Runner
+import asyncio
+
+async def main():
+    runner = Runner(
+        evaluation_file="eval.py",
+        initial_program_path="init.py",
+        config_path="config.yaml",
+    )
+    
+    best_program = await runner.run(iterations=50)
+    
+    if best_program:
+        # Trace lineage back to initial program
+        lineage = [best_program]
+        current = best_program
+        
+        while current.parent_id:
+            parent = runner.database.get(current.parent_id)
+            if parent:
+                lineage.append(parent)
+                current = parent
+            else:
+                break
+        
+        print(f"Lineage length: {len(lineage)}")
+        print("\nEvolution path:")
+        for i, prog in enumerate(reversed(lineage)):
+            score = prog.metrics.get('combined_score', 0)
+            print(f"  {i}. Iteration {prog.iteration_found}: score={score:.4f}")
+
+asyncio.run(main())
+```
+
+### Converting Program to Dictionary
+
+```python
+from skydiscover import run_discovery
+import json
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+if result.best_program:
+    # Convert to dictionary
+    prog_dict = result.best_program.to_dict()
+    
+    # Save to JSON
+    with open("program.json", "w") as f:
+        json.dump(prog_dict, f, indent=2)
+    
+    # Load back
+    from skydiscover.search.base_database import Program
+    
+    with open("program.json", "r") as f:
+        loaded_dict = json.load(f)
+    
+    restored_program = Program.from_dict(loaded_dict)
+    print(f"Restored program: {restored_program.id}")
+```
+
+### Checking Result Status
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="eval.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+if result.best_program is None:
+    print("No valid programs were found")
+    print("Possible reasons:")
+    print("  - All generated programs failed evaluation")
+    print("  - Evaluator is too strict")
+    print("  - Not enough iterations")
+else:
+    print(f"Success! Found solution with score {result.best_score}")
+    
+    if result.initial_score is not None:
+        improvement = result.best_score - result.initial_score
+        percent_improvement = (improvement / result.initial_score) * 100
+        print(f"Improvement: +{improvement:.4f} ({percent_improvement:.1f}%)")
+    else:
+        print("Generated solution from scratch")
+```
+
+## Notes
+
+- `DiscoveryResult` is a dataclass, so all fields can be accessed as attributes
+- The `best_program` field contains the full `Program` object with lineage information
+- Use `best_solution` for quick access to just the source code
+- `metrics` contains all evaluation metrics, not just the score
+- `output_dir` is `None` when `cleanup=True` (temporary files removed)
+- The `initial_score` helps measure improvement over the starting solution
+- `Program` objects can be serialized to/from dictionaries for storage
+
+## See Also
+
+- [run_discovery](/api/run-discovery) - Function that returns DiscoveryResult
+- [discover_solution](/api/discover-solution) - Alternative function returning DiscoveryResult
+- [Runner](/api/runner) - Runner class that returns Program objects

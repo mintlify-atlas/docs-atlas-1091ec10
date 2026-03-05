@@ -1,0 +1,455 @@
+---
+title: Systems Optimization Examples
+description: Real-world systems benchmarks from the ADRS initiative including cloud scheduling, load balancing, and database optimization
+icon: "server"
+---
+
+The ADRS (AI-Driven Research for Systems) benchmarks demonstrate how SkyDiscover can optimize real computer systems. These problems involve complex trade-offs between cost, latency, throughput, and resource utilization.
+
+## CloudCast: Multi-Cloud Data Transfer
+
+Optimize data broadcast across cloud regions with heterogeneous pricing and bandwidth. The goal is to minimize total egress cost while meeting transfer requirements.
+
+### Problem Description
+
+Given:
+- A source region with data to broadcast
+- Multiple destination regions that need the data
+- Network graph with bandwidth and cost per GB between regions
+- Data partitioned into chunks
+
+Find: Routing topology that minimizes total transfer cost.
+
+### Initial Program
+
+<CodeGroup>
+```python initial_program.py
+# EVOLVE-BLOCK-START
+import networkx as nx
+import json
+from typing import Dict, List
+
+def search_algorithm(src, dsts, G, num_partitions):
+    """Find optimal broadcast topology
+    
+    Args:
+        src: Source node name
+        dsts: List of destination node names
+        G: NetworkX graph with 'cost' and 'throughput' edge attributes
+        num_partitions: Number of data partitions to transfer
+    
+    Returns:
+        BroadCastTopology object with routing paths
+    """
+    h = G.copy()
+    h.remove_edges_from(list(h.in_edges(src)) + list(nx.selfloop_edges(h)))
+    bc_topology = BroadCastTopology(src, dsts, num_partitions)
+
+    # Simple shortest path routing
+    for dst in dsts:
+        path = nx.dijkstra_path(h, src, dst, weight="cost")
+        for i in range(0, len(path) - 1):
+            s, t = path[i], path[i + 1]
+            for j in range(bc_topology.num_partitions):
+                bc_topology.append_dst_partition_path(
+                    dst, j, [s, t, G[s][t]]
+                )
+
+    return bc_topology
+
+class BroadCastTopology:
+    """Represents a broadcast routing topology"""
+    def __init__(self, src: str, dsts: List[str], num_partitions: int):
+        self.src = src
+        self.dsts = dsts
+        self.num_partitions = num_partitions
+        self.paths = {
+            dst: {str(i): None for i in range(num_partitions)} 
+            for dst in dsts
+        }
+    
+    def append_dst_partition_path(self, dst: str, partition: int, path: List):
+        """Add a path segment for a partition"""
+        partition = str(partition)
+        if self.paths[dst][partition] is None:
+            self.paths[dst][partition] = []
+        self.paths[dst][partition].append(path)
+# EVOLVE-BLOCK-END
+```
+</CodeGroup>
+
+### Evaluator
+
+The evaluator validates routing correctness and simulates the transfer to compute cost:
+
+<CodeGroup>
+```python evaluator.py
+import importlib.util
+import json
+from pathlib import Path
+
+def validate_broadcast_topology(bc_t, source_node, terminal_nodes, 
+                                num_partitions, G):
+    """Validate topology is complete and correct"""
+    # Check all destinations present
+    if set(bc_t.dsts) != set(terminal_nodes):
+        return False, "Destination mismatch"
+    
+    # Check source matches
+    if bc_t.src != source_node:
+        return False, f"Source mismatch"
+    
+    # Validate all partitions exist and reach destinations
+    for dst in terminal_nodes:
+        for partition_id in range(num_partitions):
+            partition_key = str(partition_id)
+            
+            if partition_key not in bc_t.paths[dst]:
+                return False, f"Missing partition {partition_id} for {dst}"
+            
+            partition_paths = bc_t.paths[dst][partition_key]
+            if partition_paths is None or len(partition_paths) == 0:
+                return False, f"Empty partition {partition_id} for {dst}"
+            
+            # Build path and verify connectivity
+            path_nodes = [source_node]
+            for edge in partition_paths:
+                edge_src, edge_dst = edge[0], edge[1]
+                if not G.has_edge(edge_src, edge_dst):
+                    return False, f"Invalid edge {edge_src}->{edge_dst}"
+                if path_nodes[-1] != edge_src:
+                    return False, "Path discontinuity"
+                path_nodes.append(edge_dst)
+            
+            if path_nodes[-1] != dst:
+                return False, f"Path doesn't reach {dst}"
+    
+    return True, None
+
+def evaluate(program_path):
+    """Evaluate broadcast optimization across configurations"""
+    # Load program
+    spec = importlib.util.spec_from_file_location("program", program_path)
+    program = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(program)
+    
+    if not hasattr(program, "search_algorithm"):
+        return {"combined_score": 0.0, "error": "Missing search_algorithm"}
+    
+    # Test configurations
+    config_files = [
+        "examples/config/intra_aws.json",
+        "examples/config/intra_azure.json",
+        "examples/config/intra_gcp.json",
+        "examples/config/inter_agz.json",
+        "examples/config/inter_gaz2.json"
+    ]
+    
+    total_cost = 0.0
+    num_vms = 2
+    
+    for config_file in config_files:
+        with open(config_file) as f:
+            config = json.load(f)
+        
+        # Create network graph
+        G = make_nx_graph(num_vms=num_vms)
+        
+        # Run evolved algorithm
+        bc_t = program.search_algorithm(
+            config["source_node"],
+            config["dest_nodes"],
+            G,
+            config["num_partitions"]
+        )
+        
+        # Validate
+        is_valid, error = validate_broadcast_topology(
+            bc_t, config["source_node"], config["dest_nodes"],
+            config["num_partitions"], G
+        )
+        
+        if not is_valid:
+            return {
+                "combined_score": 0.0,
+                "error": f"Invalid topology: {error}"
+            }
+        
+        # Simulate and compute cost
+        simulator = BCSimulator(num_vms)
+        _, cost = simulator.evaluate_path(bc_t, config)
+        total_cost += cost
+    
+    # Lower cost = higher score
+    cost_score = 1.0 / (1.0 + total_cost)
+    
+    return {
+        "combined_score": cost_score,
+        "total_cost": total_cost,
+        "avg_cost": total_cost / len(config_files)
+    }
+```
+</CodeGroup>
+
+### Running the Example
+
+```bash
+cd benchmarks/ADRS/cloudcast
+
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+<Note>
+**What to optimize:** Evolution should discover relay strategies (e.g., routing through intermediate regions with cheaper egress) instead of direct point-to-point transfers.
+</Note>
+
+## Expert Parallelism Load Balancer (EPLB)
+
+Balance load across GPUs in Mixture-of-Experts (MoE) model inference by deciding expert replication and placement.
+
+### Problem Description
+
+Given:
+- Load statistics for each logical expert across layers
+- GPU cluster topology (nodes, GPUs per node)
+- Number of expert groups
+
+Find: How many replicas each expert should have and where to place them.
+
+### Initial Program
+
+<CodeGroup>
+```python initial_program.py
+# EVOLVE-BLOCK-START
+import torch
+
+def balanced_packing(weight: torch.Tensor, num_packs: int):
+    """Pack weighted items into bins to balance total weights"""
+    num_layers, num_groups = weight.shape
+    assert num_groups % num_packs == 0
+    groups_per_pack = num_groups // num_packs
+
+    indices = weight.float().sort(-1, descending=True).indices.cpu()
+    pack_index = torch.full_like(weight, -1, dtype=torch.int64)
+    rank_in_pack = torch.full_like(pack_index, -1)
+    
+    for i in range(num_layers):
+        pack_weights = [0] * num_packs
+        pack_items = [0] * num_packs
+        
+        for group in indices[i]:
+            # Greedy assignment to least-loaded pack
+            pack = min(
+                (p for p in range(num_packs) 
+                 if pack_items[p] < groups_per_pack),
+                key=pack_weights.__getitem__
+            )
+            pack_index[i, group] = pack
+            rank_in_pack[i, group] = pack_items[pack]
+            pack_weights[pack] += weight[i, group]
+            pack_items[pack] += 1
+    
+    return pack_index, rank_in_pack
+
+def rebalance_experts(weight: torch.Tensor, num_replicas: int,
+                      num_groups: int, num_nodes: int, num_gpus: int):
+    """Main entry point for expert load balancing
+    
+    Args:
+        weight: [layers, num_experts] load statistics
+        num_replicas: Total physical experts after replication
+        num_groups: Number of expert groups
+        num_nodes: Number of server nodes
+        num_gpus: Total number of GPUs
+    
+    Returns:
+        phy2log: Physical to logical expert mapping
+        log2phy: Logical to physical expert mapping  
+        logcnt: Replica count per logical expert
+    """
+    # Hierarchical load balancing implementation
+    # ... (full implementation in actual file)
+    pass
+# EVOLVE-BLOCK-END
+```
+</CodeGroup>
+
+### Evaluator
+
+<CodeGroup>
+```python evaluator.py
+import torch
+import json
+
+def simulate_inference(log2phy, logcnt, workload):
+    """Simulate MoE inference and compute load balance"""
+    num_layers, num_logical_experts = workload.shape
+    num_physical_experts = log2phy.shape[1]
+    
+    # Distribute load to physical experts
+    physical_load = torch.zeros(num_layers, num_physical_experts)
+    
+    for layer in range(num_layers):
+        for expert in range(num_logical_experts):
+            logical_load = workload[layer][expert]
+            num_replicas = int(logcnt[layer][expert])
+            
+            if num_replicas > 0:
+                # Split load evenly across replicas
+                replica_load = logical_load / num_replicas
+                physical_ids = log2phy[layer][expert][:num_replicas]
+                physical_load[layer, physical_ids] += replica_load
+    
+    # Compute balance metric (avg / max)
+    gpu_load = physical_load.view(num_layers, NUM_GPUS, -1).sum(dim=2)
+    avg_load = gpu_load.mean(dim=1).sum()
+    max_load = gpu_load.max(dim=1).values.sum()
+    
+    balancedness = avg_load / max_load if max_load > 0 else 0.0
+    return balancedness
+
+def evaluate(program_path: str):
+    # Load workload traces
+    with open("expert-load.json") as f:
+        workloads = json.load(f)["load_history"]
+    
+    # Import program
+    spec = importlib.util.spec_from_file_location("program", program_path)
+    program = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(program)
+    
+    balancedness_scores = []
+    
+    # Test on multiple workload windows
+    for i in range(len(workloads) - 1):
+        _, log2phy, logcnt = program.rebalance_experts(
+            workloads[i], NUM_REPLICAS, NUM_GROUPS, NUM_NODES, NUM_GPUS
+        )
+        
+        # Evaluate on next window
+        balance = simulate_inference(log2phy, logcnt, workloads[i + 1])
+        balancedness_scores.append(balance)
+    
+    avg_balance = sum(balancedness_scores) / len(balancedness_scores)
+    
+    return {
+        "balancedness_score": avg_balance,
+        "combined_score": avg_balance
+    }
+```
+</CodeGroup>
+
+### Running the Example
+
+```bash
+cd benchmarks/ADRS/eplb
+
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+## All Systems Benchmarks
+
+<AccordionGroup>
+  <Accordion title="Model Placement (Prism)" icon="microchip">
+    **Path:** `benchmarks/ADRS/prism/`
+    
+    Assign LLM models to a GPU cluster to minimize worst-case KV-cache pressure. Each GPU has 80GB memory. Lower pressure = more headroom for serving.
+    
+    **Metric:** Minimize max(pressure_ratio) across all GPUs
+  </Accordion>
+  
+  <Accordion title="LLM-SQL Column Reordering" icon="table">
+    **Path:** `benchmarks/ADRS/llm_sql/`
+    
+    Reorder table columns to maximize prefix-cache hit rates when serializing rows into LLM prompts. Consecutive rows sharing leading column values can reuse cached prefixes.
+    
+    **Metric:** Maximize prefix cache hit rate
+  </Accordion>
+  
+  <Accordion title="Transaction Scheduling" icon="clock">
+    **Path:** `benchmarks/ADRS/txn_scheduling/`
+    
+    Schedule database transactions with read/write dependencies to minimize total makespan while respecting conflict constraints.
+    
+    **Metric:** Minimize completion time
+  </Accordion>
+</AccordionGroup>
+
+## Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="System Constraints" icon="shield">
+    Solutions must respect physical limits: bandwidth, memory, dependencies
+  </Card>
+  
+  <Card title="Multi-Objective" icon="scale-balanced">
+    Often trade-offs between cost, latency, throughput, and fairness
+  </Card>
+  
+  <Card title="Simulation" icon="flask">
+    Evaluators simulate system behavior rather than deploy real infrastructure
+  </Card>
+  
+  <Card title="Real Workloads" icon="database">
+    Use traces from production systems for realistic evaluation
+  </Card>
+</CardGroup>
+
+## Installation
+
+Systems benchmarks require additional dependencies:
+
+```bash
+uv sync --extra adrs
+```
+
+Some benchmarks may have extra requirements:
+
+```bash
+cd benchmarks/ADRS/cloudcast
+uv pip install -r requirements.txt
+```
+
+## Tips for Systems Benchmarks
+
+<Steps>
+  <Step title="Understand Constraints">
+    Read the problem description carefully. Invalid solutions get zero score.
+  </Step>
+  
+  <Step title="Start with Baselines">
+    The initial programs implement simple strategies (greedy, shortest path). Evolution will discover better heuristics.
+  </Step>
+  
+  <Step title="Check Validation">
+    Systems evaluators have strict validation. Review evaluator code to understand what makes a solution valid.
+  </Step>
+  
+  <Step title="Profile Performance">
+    Some evaluators measure algorithm runtime. Balance solution quality with computational cost.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Math Examples" icon="function" href="/examples/math-optimization">
+    Explore math benchmarks
+  </Card>
+  <Card title="Algorithm Examples" icon="code" href="/examples/algorithm-design">
+    See competitive programming
+  </Card>
+  <Card title="Create Custom" icon="plus" href="/examples/custom-problems">
+    Build your own benchmark
+  </Card>
+</CardGroup>

@@ -1,0 +1,443 @@
+---
+title: Search Configuration
+description: Configure evolutionary search algorithms and database settings in SkyDiscover
+icon: magnifying-glass
+---
+
+## Overview
+
+The `search` section controls the evolutionary search algorithm, database backend, and context program selection strategy.
+
+## Basic Configuration
+
+```yaml
+search:
+  type: "topk"              # Search algorithm type
+  num_context_programs: 4   # Number of examples in prompt
+  output_dir: null          # Override output directory
+  database:                 # Algorithm-specific settings
+    db_path: null
+    log_prompts: true
+```
+
+## Search Types
+
+SkyDiscover supports multiple search algorithms, each with different strategies for exploring the solution space.
+
+### Top-K Search
+
+Simple best-first search that maintains the top-k programs by fitness.
+
+```yaml
+search:
+  type: "topk"
+  num_context_programs: 4
+  database:
+    db_path: "outputs/database.db"
+    log_prompts: true
+```
+
+<ParamField path="db_path" type="str" default="None">
+  Path to SQLite database for storing results
+</ParamField>
+
+<ParamField path="log_prompts" type="bool" default="true">
+  Whether to log prompts to the database
+</ParamField>
+
+### AdaEvolve (Adaptive Multi-Island)
+
+Adaptive evolutionary algorithm with multiple islands that adjust search intensity based on improvement history.
+
+```yaml configs/adaevolve.yaml
+search:
+  type: "adaevolve"
+  num_context_programs: 4
+  database:
+    # Population settings
+    population_size: 20
+    num_islands: 2
+    
+    # Adaptive search intensity
+    decay: 0.9
+    intensity_min: 0.15
+    intensity_max: 0.5
+    
+    # Feature flags
+    use_adaptive_search: true
+    use_ucb_selection: true
+    use_migration: true
+    use_unified_archive: true
+    
+    # Migration
+    migration_interval: 15
+    migration_count: 5
+    
+    # Archive settings
+    fitness_weight: 1.0
+    novelty_weight: 0.0
+    diversity_strategy: "code"  # code, metric, or hybrid
+    
+    # Dynamic islands
+    use_dynamic_islands: true
+    max_islands: 5
+    spawn_productivity_threshold: 0.015
+    spawn_cooldown_iterations: 30
+    
+    # Paradigm breakthrough
+    use_paradigm_breakthrough: true
+    paradigm_window_size: 10
+    paradigm_improvement_threshold: 0.12
+    paradigm_max_uses: 2
+    paradigm_max_tried: 10
+    paradigm_num_to_generate: 3
+```
+
+Defined in `skydiscover/config.py:380-432`
+
+<AccordionGroup>
+  <Accordion title="Population Settings">
+    <ParamField path="population_size" type="int" default="20">
+      Number of programs per island
+    </ParamField>
+    
+    <ParamField path="num_islands" type="int" default="2">
+      Initial number of islands
+    </ParamField>
+    
+    <ParamField path="archive_size" type="int" default="100">
+      Maximum size of the unified archive
+    </ParamField>
+  </Accordion>
+  
+  <Accordion title="Adaptive Search">
+    <ParamField path="use_adaptive_search" type="bool" default="true">
+      Enable adaptive search intensity based on improvement signal
+    </ParamField>
+    
+    <ParamField path="decay" type="float" default="0.9">
+      Exponential moving average weight (rho) for improvement signal
+    </ParamField>
+    
+    <ParamField path="intensity_min" type="float" default="0.15">
+      Minimum search intensity (exploitation mode)
+    </ParamField>
+    
+    <ParamField path="intensity_max" type="float" default="0.5">
+      Maximum search intensity (exploration mode)
+    </ParamField>
+    
+    <ParamField path="fixed_intensity" type="float" default="0.4">
+      Fixed intensity when `use_adaptive_search=false`
+    </ParamField>
+  </Accordion>
+  
+  <Accordion title="Selection & Migration">
+    <ParamField path="use_ucb_selection" type="bool" default="true">
+      Use UCB (Upper Confidence Bound) for island selection
+    </ParamField>
+    
+    <ParamField path="use_migration" type="bool" default="true">
+      Enable inter-island migration
+    </ParamField>
+    
+    <ParamField path="migration_interval" type="int" default="15">
+      Migrate every N iterations
+    </ParamField>
+    
+    <ParamField path="migration_count" type="int" default="5">
+      Number of top programs to migrate
+    </ParamField>
+  </Accordion>
+  
+  <Accordion title="Archive & Diversity">
+    <ParamField path="use_unified_archive" type="bool" default="true">
+      Use quality-diversity archive
+    </ParamField>
+    
+    <ParamField path="fitness_weight" type="float" default="1.0">
+      Weight for fitness rank in elite score
+    </ParamField>
+    
+    <ParamField path="novelty_weight" type="float" default="0.0">
+      Weight for novelty rank in elite score
+    </ParamField>
+    
+    <ParamField path="diversity_strategy" type="str" default="code">
+      Diversity metric: `code`, `metric`, or `hybrid`
+    </ParamField>
+    
+    <ParamField path="k_neighbors" type="int" default="5">
+      Number of neighbors for novelty calculation
+    </ParamField>
+  </Accordion>
+  
+  <Accordion title="Dynamic Islands">
+    <ParamField path="use_dynamic_islands" type="bool" default="true">
+      Enable dynamic island spawning
+    </ParamField>
+    
+    <ParamField path="max_islands" type="int" default="5">
+      Maximum number of islands
+    </ParamField>
+    
+    <ParamField path="spawn_productivity_threshold" type="float" default="0.015">
+      Spawn new island if productivity drops below this
+    </ParamField>
+    
+    <ParamField path="spawn_cooldown_iterations" type="int" default="30">
+      Wait N iterations between island spawns
+    </ParamField>
+  </Accordion>
+  
+  <Accordion title="Paradigm Breakthrough">
+    <ParamField path="use_paradigm_breakthrough" type="bool" default="true">
+      Generate new high-level strategies during stagnation
+    </ParamField>
+    
+    <ParamField path="paradigm_window_size" type="int" default="10">
+      Window for improvement rate calculation
+    </ParamField>
+    
+    <ParamField path="paradigm_improvement_threshold" type="float" default="0.12">
+      Trigger paradigm breakthrough below this improvement rate
+    </ParamField>
+    
+    <ParamField path="paradigm_max_uses" type="int" default="2">
+      Maximum uses per paradigm
+    </ParamField>
+    
+    <ParamField path="paradigm_num_to_generate" type="int" default="3">
+      Number of paradigms to generate per trigger
+    </ParamField>
+    
+    <ParamField path="paradigm_max_tried" type="int" default="10">
+      Maximum tried paradigms to track
+    </ParamField>
+  </Accordion>
+</AccordionGroup>
+
+### OpenEvolve Native (MAP-Elites)
+
+Quality-diversity search using MAP-Elites grids with island-based populations.
+
+```yaml configs/openevolve_native.yaml
+search:
+  type: "openevolve_native"
+  num_context_programs: 5
+  database:
+    num_islands: 5
+    population_size: 40
+    archive_size: 100
+    
+    # Selection strategies
+    exploration_ratio: 0.2    # P(explore) - random from island
+    exploitation_ratio: 0.7   # P(exploit) - archive elite
+    # remaining 0.1 = P(random)
+    
+    elite_selection_ratio: 0.1
+    
+    # MAP-Elites features
+    feature_dimensions: ["complexity", "diversity"]
+    feature_bins: 10
+    diversity_reference_size: 20
+    
+    # Migration
+    migration_interval: 10
+    migration_rate: 0.1
+    
+    random_seed: 42
+```
+
+Defined in `skydiscover/config.py:435-450`
+
+<ParamField path="num_islands" type="int" default="5">
+  Number of islands in the population
+</ParamField>
+
+<ParamField path="population_size" type="int" default="40">
+  Total population size across all islands
+</ParamField>
+
+<ParamField path="archive_size" type="int" default="100">
+  Size of the MAP-Elites archive
+</ParamField>
+
+<ParamField path="exploration_ratio" type="float" default="0.2">
+  Probability of exploration (random parent from current island)
+</ParamField>
+
+<ParamField path="exploitation_ratio" type="float" default="0.7">
+  Probability of exploitation (elite from archive)
+</ParamField>
+
+<ParamField path="elite_selection_ratio" type="float" default="0.1">
+  Fraction of context programs from top elites
+</ParamField>
+
+<ParamField path="feature_dimensions" type="List[str]" default='["complexity", "diversity"]'>
+  Behavioral dimensions for MAP-Elites grid
+</ParamField>
+
+<ParamField path="feature_bins" type="int" default="10">
+  Number of bins per feature dimension
+</ParamField>
+
+### GEPA Native
+
+Guided Evolution for Program Adaptation with elite pool, epsilon-greedy selection, and LLM-mediated merge.
+
+```yaml
+search:
+  type: "gepa_native"
+  num_context_programs: 4
+  database:
+    population_size: 40
+    
+    # Selection
+    candidate_selection_strategy: "epsilon_greedy"  # epsilon_greedy, best, pareto
+    epsilon: 0.1
+    max_rejection_history: 20
+    
+    # Controller settings
+    acceptance_gating: true
+    use_merge: true
+    merge_after_stagnation: 15
+    max_merge_attempts: 10
+    max_recent_failures: 5
+    
+    random_seed: 42
+```
+
+Defined in `skydiscover/config.py:453-472`
+
+### Beam Search
+
+Beam search with diversity weighting.
+
+```yaml
+search:
+  type: "beam_search"
+  num_context_programs: 4
+  database:
+    beam_width: 5
+    beam_selection_strategy: "diversity_weighted"
+    beam_diversity_weight: 0.3
+    beam_temperature: 1.0
+    beam_depth_penalty: 0.0
+```
+
+Defined in `skydiscover/config.py:362-370`
+
+### Best-of-N
+
+Generate N candidates and select the best one.
+
+```yaml
+search:
+  type: "best_of_n"
+  num_context_programs: 4
+  database:
+    best_of_n: 5
+```
+
+Defined in `skydiscover/config.py:373-377`
+
+### EvoX (Co-Evolution)
+
+Label-guided co-evolutionary search.
+
+```yaml configs/evox.yaml
+search:
+  type: "evox"
+  database:
+    database_file_path: null  # Auto-configured
+    evaluation_file: null     # Auto-configured
+    config_path: null         # Auto-configured
+    auto_generate_variation_operators: true
+```
+
+Defined in `skydiscover/config.py:339-359`
+
+## SearchConfig Parameters
+
+Defined in `skydiscover/config.py:485-493`
+
+<ParamField path="type" type="str" default="topk">
+  Search algorithm: `topk`, `adaevolve`, `openevolve_native`, `gepa_native`, `beam_search`, `best_of_n`, or `evox`
+</ParamField>
+
+<ParamField path="num_context_programs" type="int" default="4">
+  Number of example programs to include in generation prompts
+</ParamField>
+
+<ParamField path="output_dir" type="str" default="None">
+  Override output directory. If None, auto-generates based on search type and timestamp
+</ParamField>
+
+<ParamField path="database" type="DatabaseConfig" default="DatabaseConfig()">
+  Algorithm-specific database configuration
+</ParamField>
+
+## CLI Overrides
+
+Override search type from command line:
+
+```bash
+# Use AdaEvolve
+skydiscover-run program.py evaluator.py -s adaevolve
+
+# Use OpenEvolve Native
+skydiscover-run program.py evaluator.py -s openevolve_native
+
+# Use beam search
+skydiscover-run program.py evaluator.py -s beam_search
+```
+
+## Choosing a Search Algorithm
+
+<CardGroup cols={2}>
+  <Card title="Top-K" icon="list-ol">
+    **Best for:** Quick experiments, simple optimization
+    
+    **Pros:** Fast, simple, low overhead
+    
+    **Cons:** Limited exploration
+  </Card>
+  
+  <Card title="AdaEvolve" icon="island">
+    **Best for:** Complex optimization, long runs
+    
+    **Pros:** Adaptive, robust, handles stagnation
+    
+    **Cons:** More computational overhead
+  </Card>
+  
+  <Card title="OpenEvolve Native" icon="grid">
+    **Best for:** Quality-diversity, exploring trade-offs
+    
+    **Pros:** Diverse solutions, explores full space
+    
+    **Cons:** Requires good feature dimensions
+  </Card>
+  
+  <Card title="GEPA" icon="merge">
+    **Best for:** Merging diverse solutions
+    
+    **Pros:** LLM-mediated combination, smart gating
+    
+    **Cons:** Higher LLM token usage
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LLM Configuration" icon="brain" href="/config/llm">
+    Configure models for search
+  </Card>
+  
+  <Card title="Evaluator Configuration" icon="check-circle" href="/config/overview">
+    Set up program evaluation
+  </Card>
+</CardGroup>

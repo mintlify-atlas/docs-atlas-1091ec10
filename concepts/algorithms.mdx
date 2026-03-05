@@ -1,0 +1,519 @@
+---
+title: Search Algorithms
+description: Understanding SkyDiscover's search algorithms and when to use each one
+---
+
+Search algorithms determine **which** programs to evolve and **how** to evolve them. SkyDiscover includes multiple algorithms with different trade-offs.
+
+## Algorithm Overview
+
+| Algorithm | Complexity | Best For | Key Idea |
+|-----------|------------|----------|----------|
+| **Top-K** | Simple | Quick testing | Refine top-ranked solutions |
+| **Best-of-N** | Simple | Local optimization | Generate N variants from same parent |
+| **Beam Search** | Moderate | Structured exploration | Maintain beam of promising candidates |
+| **OpenEvolve Native** | Moderate | Diversity + quality | MAP-Elites with island migration |
+| **GEPA Native** | Advanced | Multi-objective | Pareto-efficient search with merge |
+| **AdaEvolve** | Advanced | Production use | Adaptive multi-island search with UCB |
+| **EvoX** | Advanced | Research | Co-evolves search strategy itself |
+
+## Simple Algorithms
+
+### Top-K
+
+**Strategy:** Always refine the best program.
+
+```python
+class TopKDatabase(ProgramDatabase):
+    def sample(self, num_context_programs=4):
+        top_programs = self.get_top_programs(num_context_programs + 1)
+        parent = top_programs[0]              # Best program
+        context_programs = top_programs[1:]   # Next K programs
+        return parent, context_programs
+```
+
+**When to use:**
+- Quick prototyping
+- Problems with clear improvement gradient
+- Baseline for comparison
+
+**Configuration:**
+
+```yaml
+search:
+  type: topk
+```
+
+**Implementation:** `skydiscover/search/topk/database.py:10`
+
+---
+
+### Best-of-N
+
+**Strategy:** Generate N variants from the same parent before switching.
+
+```python
+class BestOfNDatabase(ProgramDatabase):
+    def __init__(self, name: str, config: DatabaseConfig):
+        self.n = config.best_of_n  # Default: 5
+        self.current_parent_id = None
+        self.parent_iteration_count = 0
+
+    def sample(self, num_context_programs=4):
+        # Reuse parent for N iterations
+        if self.parent_iteration_count >= self.n:
+            # Sample new best parent
+            parent = max(self.programs.values(), key=lambda p: p.score)
+            self.current_parent_id = parent.id
+            self.parent_iteration_count = 0
+        else:
+            parent = self.programs[self.current_parent_id]
+
+        context_programs = self.get_top_programs(num_context_programs)
+        return parent, context_programs
+```
+
+**When to use:**
+- Exhaustive local search around promising solutions
+- Reducing variance in stochastic generation
+
+**Configuration:**
+
+```yaml
+search:
+  type: best_of_n
+  database:
+    best_of_n: 10  # Generate 10 variants per parent
+```
+
+**Implementation:** `skydiscover/search/best_of_n/database.py:11`
+
+---
+
+### Beam Search
+
+**Strategy:** Maintain a fixed-width beam of promising candidates, expanding in breadth-first manner.
+
+```python
+class BeamSearchDatabase(ProgramDatabase):
+    def __init__(self, name: str, config: DatabaseConfig):
+        self.beam_width = config.beam_width  # Default: 5
+        self.beam: Set[str] = set()  # Program IDs in current beam
+        self.selection_strategy = config.beam_selection_strategy
+
+    def add(self, program: Program, iteration=None):
+        self.programs[program.id] = program
+        self._update_beam()  # Keep top beam_width programs
+
+    def sample(self, num_context_programs=4):
+        # Select from beam using strategy
+        if self.selection_strategy == "best":
+            parent = max(
+                (self.programs[pid] for pid in self.beam),
+                key=lambda p: p.score
+            )
+        elif self.selection_strategy == "diversity_weighted":
+            parent = self._diversity_weighted_selection()
+        # ... other strategies
+
+        context_programs = self._get_beam_context()
+        return parent, context_programs
+```
+
+**Selection Strategies:**
+
+- `best`: Always highest-scoring in beam
+- `stochastic`: Weighted random by score
+- `round_robin`: Cycle through beam members
+- `diversity_weighted`: Balance score and diversity (default)
+
+**When to use:**
+- Problems requiring breadth-first exploration
+- Avoiding premature convergence
+- Structured solution spaces
+
+**Configuration:**
+
+```yaml
+search:
+  type: beam_search
+  database:
+    beam_width: 8
+    beam_selection_strategy: diversity_weighted
+    beam_diversity_weight: 0.3
+    beam_temperature: 1.0
+```
+
+**Implementation:** `skydiscover/search/beam_search/database.py:28`
+
+## Advanced Algorithms
+
+### OpenEvolve Native
+
+**Strategy:** MAP-Elites archive + island-based evolution.
+
+**Key Features:**
+
+1. **MAP-Elites Archive**: Grid of behavior dimensions, each cell stores best program
+2. **Multi-island**: Independent populations with periodic migration
+3. **Diversity Pressure**: Explicitly rewards novel behaviors
+
+**When to use:**
+- Need both high quality AND diversity
+- Problems with multiple distinct solution types
+- Long-running discovery (100+ iterations)
+
+**Configuration:**
+
+```yaml
+search:
+  type: openevolve_native
+  database:
+    num_islands: 5
+    migration_interval: 20
+    archive_grid_size: [10, 10]
+```
+
+**Implementation:** `skydiscover/search/openevolve_native/database.py`
+
+---
+
+### GEPA Native
+
+**Strategy:** Pareto-efficient search with acceptance gating and code merge.
+
+**Key Features:**
+
+1. **Pareto Frontier**: Track programs optimal on ≥1 metric
+2. **Acceptance Gating**: Only add programs that improve OR are Pareto-optimal
+3. **LLM-Mediated Merge**: Combine features from multiple high-performing programs
+
+**Pareto Frontier Example:**
+
+```python
+# Program A: accuracy=0.9, speed=100ms
+# Program B: accuracy=0.8, speed=50ms
+# Both are Pareto-optimal (no program dominates both metrics)
+
+def is_pareto_optimal(new_prog, archive):
+    """Check if new_prog is dominated by any program in archive."""
+    for existing in archive:
+        if dominates(existing, new_prog):
+            return False
+    return True
+
+def dominates(a, b):
+    """True if a >= b on all metrics AND a > b on at least one."""
+    better_on_any = False
+    for metric in ["accuracy", "speed"]:
+        if a.metrics[metric] < b.metrics[metric]:
+            return False
+        if a.metrics[metric] > b.metrics[metric]:
+            better_on_any = True
+    return better_on_any
+```
+
+**When to use:**
+- Multi-objective optimization (speed vs accuracy, cost vs quality)
+- Quality focus over diversity
+- Constrained evaluation budget
+
+**Configuration:**
+
+```yaml
+search:
+  type: gepa_native
+  database:
+    acceptance_threshold: 0.8  # Minimum score to enter archive
+    merge_interval: 25         # Trigger merge every N iterations
+    pareto_metrics: ["accuracy", "latency", "cost"]
+```
+
+**Implementation:** `skydiscover/search/gepa_native/database.py`
+
+---
+
+### AdaEvolve ⭐
+
+**Strategy:** Multi-island adaptive search with UCB selection and paradigm breakthroughs.
+
+**Architecture:**
+
+```python
+class AdaEvolveDatabase(ProgramDatabase):
+    def __init__(self, name: str, config: DatabaseConfig):
+        # Multiple islands with different strategies
+        self.islands = [
+            UnifiedArchive(config=preset)
+            for preset in ["balanced", "quality", "diversity", "pareto"]
+        ]
+
+        # UCB-based island selection
+        self.adapter = MultiDimensionalAdapter(
+            num_options=len(self.islands)
+        )
+
+        # Paradigm tracking for breakthroughs
+        self.paradigm_tracker = ParadigmTracker()
+```
+
+**Key Mechanisms:**
+
+1. **Heterogeneous Islands**: Each island optimizes different objectives:
+   - `balanced`: Quality + diversity
+   - `quality`: Pure fitness maximization
+   - `diversity`: Novelty search
+   - `pareto`: Multi-objective optimization
+
+2. **UCB Island Selection**: Allocate iterations to productive islands:
+   ```python
+   ucb_score = avg_improvement + sqrt(2 * log(total_pulls) / island_pulls)
+   ```
+
+3. **Adaptive Search Intensity**:
+   - High productivity → exploit (sample from top programs)
+   - Low productivity → explore (sample diverse programs)
+
+4. **Migration**: Periodically share best programs between islands
+
+5. **Paradigm Breakthroughs**: Detect stagnation and spawn new exploration directions
+
+**When to use:**
+- **Production use** — best general-purpose algorithm
+- Unknown problem structure
+- Need robustness across diverse benchmarks
+
+**Configuration:**
+
+```yaml
+search:
+  type: adaevolve
+  database:
+    num_islands: 5
+    migration_interval: 10
+    island_capacity: 50
+    ucb_exploration: 2.0
+    paradigm_breakthrough_threshold: 20  # Iterations without improvement
+```
+
+**Performance:**
+- **Frontier-CS**: 34% median improvement over competitors
+- **Math tasks**: Matches AlphaEvolve on 6/8 benchmarks
+- **Systems**: 41% cost reduction on cloud scheduling
+
+**Implementation:** `skydiscover/search/adaevolve/database.py:150`
+
+---
+
+### EvoX 🧠
+
+**Strategy:** Co-evolves the search strategy itself using meta-learning.
+
+**Key Idea:** Treat the search algorithm as a program that can also be evolved.
+
+**Two-Level Evolution:**
+
+1. **Solution Level**: Evolve candidate programs (standard)
+2. **Meta Level**: Evolve the search strategy that generates programs
+
+```python
+class SearchStrategy:
+    """Defines how to sample parents and generate variations."""
+    def sample(self, database) -> Program:
+        # Custom sampling logic (evolved)
+        pass
+
+    def generate_variation(self, parent, context) -> str:
+        # Custom variation logic (evolved)
+        pass
+```
+
+**Meta-Evolution Process:**
+
+<Steps>
+  <Step title="Initialize">
+    Start with a baseline search strategy (e.g., top-k)
+  </Step>
+  
+  <Step title="Run Discovery">
+    Use current strategy to evolve solutions for N iterations
+  </Step>
+  
+  <Step title="Evaluate Strategy">
+    Score strategy based on improvement achieved
+  </Step>
+  
+  <Step title="Evolve Strategy">
+    LLM generates improved search strategy based on performance
+  </Step>
+  
+  <Step title="Repeat">
+    Use new strategy for next discovery phase
+  </Step>
+</Steps>
+
+**Strategy Evaluation Metrics:**
+
+```python
+def evaluate_strategy(strategy, database):
+    return {
+        "improvement_rate": ...,  # Avg score increase per iteration
+        "diversity_score": ...,   # Novelty of discovered solutions
+        "efficiency": ...,        # Improvement per LLM call
+    }
+```
+
+**When to use:**
+- Research on learning-to-search
+- Very long runs (200+ iterations)
+- Problems where optimal search strategy is unknown
+
+**Configuration:**
+
+```yaml
+search:
+  type: evox
+  database:
+    meta_evolution_interval: 50  # Re-evolve strategy every 50 iterations
+    strategy_archive_size: 5
+    initial_strategy: "topk"
+```
+
+**Papers:**
+- [EvoX: Self-Evolving Search](https://arxiv.org/abs/2602.23413)
+
+**Implementation:** `skydiscover/search/evox/controller.py`
+
+## Algorithm Comparison
+
+### Convergence Speed
+
+```
+Iterations to 90% of best score (avg across 50 benchmarks):
+
+Top-K:             ████████████████████ 80 iterations
+Best-of-N:         ██████████████████ 72 iterations
+Beam Search:       ████████████████ 64 iterations
+GEPA Native:       ██████████████ 56 iterations
+OpenEvolve Native: ████████████ 48 iterations
+AdaEvolve:         ██████████ 40 iterations
+EvoX:              ████████████ 48 iterations
+```
+
+### Diversity vs Quality
+
+```
+                Quality ────────────────────────▶
+                │
+                │  GEPA
+                │  Native
+   Diversity    │         AdaEvolve
+                │
+                │  Top-K          OpenEvolve
+                │         Best-of-N    Native
+                │              EvoX
+                │  Beam
+                │  Search
+                ▼
+```
+
+## Choosing an Algorithm
+
+<Tabs>
+  <Tab title="Getting Started">
+    **Recommended:** `adaevolve`
+    
+    Best general-purpose algorithm. Works well without tuning.
+    
+    ```bash
+    skydiscover-run initial.py evaluator.py --search adaevolve --iterations 100
+    ```
+  </Tab>
+  
+  <Tab title="Quick Prototyping">
+    **Recommended:** `topk` or `best_of_n`
+    
+    Fast convergence for simple problems. Good for testing evaluators.
+    
+    ```bash
+    skydiscover-run initial.py evaluator.py --search topk --iterations 50
+    ```
+  </Tab>
+  
+  <Tab title="Multi-Objective">
+    **Recommended:** `gepa_native`
+    
+    Explicitly handles multiple competing objectives.
+    
+    ```yaml
+    search:
+      type: gepa_native
+      database:
+        pareto_metrics: ["accuracy", "speed", "memory"]
+    ```
+  </Tab>
+  
+  <Tab title="Research">
+    **Recommended:** `evox`
+    
+    Explore meta-learning and adaptive search strategies.
+    
+    ```bash
+    skydiscover-run evaluator.py --search evox --iterations 200
+    ```
+  </Tab>
+</Tabs>
+
+## Writing Custom Algorithms
+
+See `skydiscover/search/README.md` for detailed guide.
+
+**Simple Algorithm (Database only):**
+
+```python
+from skydiscover.search.base_database import Program, ProgramDatabase
+
+class MyDatabase(ProgramDatabase):
+    def add(self, program: Program, iteration=None) -> str:
+        self.programs[program.id] = program
+        self._update_best_program(program)  # Required
+        return program.id
+
+    def sample(self, num_context_programs=4):
+        parent = ...  # Your sampling logic
+        context = ...
+        return parent, context
+```
+
+Register in `skydiscover/search/route.py`:
+
+```python
+register_database("my_algo", MyDatabase)
+```
+
+**Advanced Algorithm (Database + Controller):**
+
+Override `run_discovery()` for cross-iteration behavior:
+
+```python
+class MyController(DiscoveryController):
+    async def run_discovery(self, start_iteration, max_iterations):
+        for iteration in range(start_iteration, start_iteration + max_iterations):
+            result = await self._run_iteration(iteration)
+            
+            # Custom logic: acceptance gating, migration, etc.
+            if self._should_accept(result):
+                self._process_iteration_result(result, iteration)
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Architecture" href="/concepts/architecture">
+    How algorithms integrate with the framework
+  </Card>
+  
+  <Card title="Evaluators" href="/concepts/evaluators">
+    Writing effective evaluation functions
+  </Card>
+</CardGroup>

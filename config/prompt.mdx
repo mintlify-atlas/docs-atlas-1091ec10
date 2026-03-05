@@ -1,0 +1,314 @@
+---
+title: Prompt Configuration
+description: Configure system messages, prompt templates, and context building in SkyDiscover
+icon: message
+---
+
+## Overview
+
+The `prompt` section (internally called `ContextBuilderConfig`) controls how prompts are generated for the LLM, including system messages, templates, and simplification suggestions.
+
+## Basic Configuration
+
+```yaml
+prompt:
+  system_message: "You are an expert to help find the best solution to the problem."
+  template: "default"
+  template_dir: null
+  evaluator_system_message: "evaluator_system_message"
+```
+
+## System Message
+
+The system message is the primary instruction given to the LLM. It should describe the problem, constraints, and optimization objectives.
+
+### Inline System Message
+
+```yaml
+prompt:
+  system_message: "You are an expert Python programmer. Optimize the following algorithm for speed and memory efficiency."
+```
+
+### Multi-Line System Message
+
+```yaml
+prompt:
+  system_message: |
+    You are an expert algorithm designer.
+    
+    Your task is to find the best solution that:
+    - Maximizes accuracy on the test dataset
+    - Minimizes computational complexity
+    - Uses only standard library functions
+    
+    Provide well-documented, production-ready code.
+```
+
+### System Message from File
+
+For longer prompts, reference an external file:
+
+```yaml
+prompt:
+  system_message: "system_prompt.txt"
+```
+
+SkyDiscover automatically loads the content if:
+- The string has no newlines
+- The string is less than 256 characters
+- A file with that name exists in the config directory
+
+See implementation in `skydiscover/config.py:573-587`
+
+### Environment Variable Expansion
+
+Use `${VAR}` syntax to inject environment variables:
+
+```yaml
+prompt:
+  system_message: |
+    You are optimizing for the ${DATASET_NAME} dataset.
+    Target metric: ${TARGET_METRIC}
+    Optimization goal: ${OPTIMIZATION_GOAL}
+```
+
+## ContextBuilderConfig Parameters
+
+Defined in `skydiscover/config.py:103-113`
+
+<ParamField path="template" type="str" default="default">
+  Prompt template to use. Options: `default`, `evox`
+</ParamField>
+
+<ParamField path="template_dir" type="str" default="None">
+  Directory containing custom prompt templates
+</ParamField>
+
+<ParamField path="system_message" type="str" default="system_message">
+  Primary system message for solution generation
+</ParamField>
+
+<ParamField path="evaluator_system_message" type="str" default="evaluator_system_message">
+  System message for LLM-as-a-judge evaluation (when `evaluator.llm_as_judge=true`)
+</ParamField>
+
+<ParamField path="suggest_simplification_after_chars" type="int" default="500">
+  Suggest prompt simplification if user message exceeds this character count. Set to `null` to disable
+</ParamField>
+
+## Examples
+
+### Algorithm Optimization
+
+```yaml
+prompt:
+  system_message: |
+    You are an expert algorithm designer specializing in optimization.
+    
+    Task: Improve the provided algorithm to maximize performance.
+    
+    Objectives:
+    - Minimize time complexity (Big-O)
+    - Minimize space complexity
+    - Maintain correctness on all test cases
+    
+    Constraints:
+    - Must use Python 3.10+
+    - No external dependencies beyond standard library
+    - Code must be readable and well-documented
+    
+    Techniques to explore:
+    - Dynamic programming
+    - Memoization
+    - Data structure optimization
+    - Algorithmic paradigm shifts
+```
+
+### Machine Learning Model
+
+```yaml configs/ml_optimization.yaml
+prompt:
+  system_message: |
+    You are a machine learning expert. Design models for image classification.
+    
+    Dataset: CIFAR-10 (32x32 RGB images, 10 classes)
+    
+    Objectives:
+    - Maximize test accuracy
+    - Minimize inference time
+    - Keep model size under 10MB
+    
+    Constraints:
+    - PyTorch only
+    - No pre-trained models
+    - Must train in under 30 minutes on single GPU
+    
+    Explore:
+    - Novel architectures
+    - Efficient convolution alternatives
+    - Regularization techniques
+    - Data augmentation strategies
+```
+
+### LLM-as-a-Judge
+
+Configure separate messages for generation and evaluation:
+
+```yaml configs/llm_judge.yaml
+prompt:
+  system_message: "You are an expert programmer. Improve the given program."
+  
+  evaluator_system_message: |
+    You are a strict code quality judge. Evaluate the given code and return
+    a JSON object with scores between 0.0 and 1.0 for each metric:
+    
+    {
+      "correctness": <score>,
+      "efficiency": <score>,
+      "readability": <score>,
+      "robustness": <score>
+    }
+    
+    Be critical - only exceptional code should score above 0.8.
+    Consider edge cases, error handling, and production readiness.
+```
+
+### EvoX Template
+
+Use the EvoX template for co-evolutionary search:
+
+```yaml
+prompt:
+  template: "evox"
+  system_message: |
+    Design an optimization algorithm for black-box function optimization.
+    
+    Requirements:
+    - Function signature: optimize(func, dim, budget) -> best_x, best_y
+    - Return best found solution and its value
+    - Efficient exploration-exploitation balance
+```
+
+## Custom Templates
+
+Create custom prompt templates in a separate directory:
+
+```yaml
+prompt:
+  template: "custom_template"
+  template_dir: "prompts/"
+  system_message: "Your problem description"
+```
+
+Template structure:
+```
+prompts/
+├── custom_template/
+│   ├── generation.txt      # Main generation prompt
+│   ├── evaluation.txt      # Evaluation prompt
+│   └── metadata.yaml       # Template metadata
+```
+
+## CLI Overrides
+
+Override system prompt from command line:
+
+```bash
+skydiscover-run program.py evaluator.py \
+  --system-prompt "You are an expert optimizer. Maximize the fitness metric."
+```
+
+See implementation in `skydiscover/config.py:907-909`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Be Specific" icon="bullseye">
+    Clearly define:
+    - The problem domain
+    - Input/output formats
+    - Optimization objectives
+    - Success metrics
+    - Constraints and limitations
+  </Accordion>
+  
+  <Accordion title="Specify Techniques" icon="toolbox">
+    Suggest approaches to explore:
+    ```yaml
+    Techniques to consider:
+    - Dynamic programming for optimal substructure
+    - Greedy algorithms for local optimization
+    - Divide-and-conquer for parallelization
+    - Caching/memoization for repeated computation
+    ```
+  </Accordion>
+  
+  <Accordion title="Set Clear Constraints" icon="shield">
+    Define hard limits:
+    ```yaml
+    Constraints:
+    - Time complexity: O(n log n) or better
+    - Space complexity: O(n) or better
+    - No external libraries
+    - Must pass all test cases
+    ```
+  </Accordion>
+  
+  <Accordion title="Include Examples" icon="book-open">
+    Show expected behavior:
+    ```yaml
+    Example:
+    Input: [3, 1, 4, 1, 5, 9, 2, 6]
+    Output: [1, 1, 2, 3, 4, 5, 6, 9]
+    
+    The algorithm should sort the array in ascending order.
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Multi-Objective Prompts" icon="target">
+    Balance competing objectives:
+    ```yaml
+    Optimize for:
+    1. Correctness (most important)
+    2. Speed (time complexity)
+    3. Memory efficiency (space complexity)
+    4. Code readability
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Prompt Engineering Tips
+
+<Steps>
+  <Step title="Start Simple">
+    Begin with a basic prompt and iterate based on results
+  </Step>
+  
+  <Step title="Add Constraints Gradually">
+    Introduce constraints one at a time to understand their impact
+  </Step>
+  
+  <Step title="Provide Context">
+    Include domain knowledge and expected solution characteristics
+  </Step>
+  
+  <Step title="Test with Multiple Models">
+    Different models respond differently to prompt styles
+  </Step>
+  
+  <Step title="Monitor Results">
+    Use the live monitor to see how prompts affect generation quality
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LLM Configuration" icon="brain" href="/config/llm">
+    Configure models to use your prompts
+  </Card>
+  
+  <Card title="Agentic Configuration" icon="robot" href="/guides/running-discovery">
+    Enable agentic generation for codebase-aware solutions
+  </Card>
+</CardGroup>

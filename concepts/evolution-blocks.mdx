@@ -1,0 +1,558 @@
+---
+title: Evolution Blocks
+description: Control which parts of your code get evolved with EVOLVE-BLOCK markers
+---
+
+EVOLVE-BLOCK markers let you specify **exactly** which parts of your code should be mutated by the LLM, while keeping the rest fixed.
+
+## Why Use Evolution Blocks?
+
+<CardGroup cols={2}>
+  <Card title="Preserve Setup Code" icon="shield">
+    Keep imports, constants, and utility functions unchanged
+  </Card>
+  
+  <Card title="Focus Evolution" icon="crosshairs">
+    LLM only modifies the algorithm, not boilerplate
+  </Card>
+  
+  <Card title="Maintain Interfaces" icon="plug">
+    Ensure function signatures stay compatible with evaluator
+  </Card>
+  
+  <Card title="Faster Convergence" icon="bolt">
+    Smaller search space = better results
+  </Card>
+</CardGroup>
+
+## Basic Usage
+
+Wrap the code to evolve with markers:
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+# EVOLVE-BLOCK-START
+def solve(input_data):
+    """This function will be evolved by the LLM."""
+    # Initial baseline implementation
+    result = input_data * 2
+    return result
+# EVOLVE-BLOCK-END
+
+def run_tests():
+    """This function is fixed - never modified."""
+    test_cases = load_test_cases()
+    for test in test_cases:
+        result = solve(test.input)
+        assert result == test.expected
+```
+
+**What happens:**
+- LLM sees and can modify everything between `EVOLVE-BLOCK-START` and `EVOLVE-BLOCK-END`
+- Everything outside markers is frozen
+- The frozen code is shown to the LLM for context, but never modified
+
+## Real Examples
+
+### Example 1: Circle Packing
+
+**Problem:** Pack 26 circles in a unit square.
+
+```python
+# EVOLVE-BLOCK-START
+"""Constructor-based circle packing for n=26 circles"""
+import numpy as np
+
+def construct_packing():
+    """
+    Construct a specific arrangement of 26 circles in a unit square
+    that attempts to maximize the sum of their radii.
+
+    Returns:
+        Tuple of (centers, radii, sum_of_radii)
+        centers: np.array of shape (26, 2) with (x, y) coordinates
+        radii: np.array of shape (26) with radius of each circle
+        sum_of_radii: Sum of all radii
+    """
+    # Initialize arrays for 26 circles
+    n = 26
+    centers = np.zeros((n, 2))
+
+    # Place circles in a structured pattern
+    # This is a simple pattern - evolution will improve this
+
+    # First, place a large circle in the center
+    centers[0] = [0.5, 0.5]
+
+    # Place 8 circles around it in a ring
+    for i in range(8):
+        angle = 2 * np.pi * i / 8
+        centers[i + 1] = [0.5 + 0.3 * np.cos(angle), 0.5 + 0.3 * np.sin(angle)]
+
+    # Place 16 more circles in an outer ring
+    for i in range(16):
+        angle = 2 * np.pi * i / 16
+        centers[i + 9] = [0.5 + 0.7 * np.cos(angle), 0.5 + 0.7 * np.sin(angle)]
+
+    # Clip to ensure everything is inside the unit square
+    centers = np.clip(centers, 0.01, 0.99)
+
+    # Compute maximum valid radii for this configuration
+    radii = compute_max_radii(centers)
+
+    # Calculate the sum of radii
+    sum_radii = np.sum(radii)
+
+    return centers, radii, sum_radii
+
+def compute_max_radii(centers):
+    """
+    Compute the maximum possible radii for each circle position
+    such that they don't overlap and stay within the unit square.
+    """
+    n = centers.shape[0]
+    radii = np.ones(n)
+
+    # First, limit by distance to square borders
+    for i in range(n):
+        x, y = centers[i]
+        radii[i] = min(x, y, 1 - x, 1 - y)
+
+    # Then, limit by distance to other circles
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = np.sqrt(np.sum((centers[i] - centers[j]) ** 2))
+            if radii[i] + radii[j] > dist:
+                scale = dist / (radii[i] + radii[j])
+                radii[i] *= scale
+                radii[j] *= scale
+
+    return radii
+# EVOLVE-BLOCK-END
+
+# This part remains fixed (not evolved)
+def run_packing():
+    """Run the circle packing constructor for n=26"""
+    centers, radii, sum_radii = construct_packing()
+    return centers, radii, sum_radii
+
+def visualize(centers, radii):
+    """Visualize the circle packing"""
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+
+    for center, radius in zip(centers, radii):
+        circle = Circle(center, radius, alpha=0.5)
+        ax.add_patch(circle)
+
+    plt.title(f"Circle Packing (n={len(centers)}, sum={sum(radii):.6f})")
+    plt.show()
+
+if __name__ == "__main__":
+    centers, radii, sum_radii = run_packing()
+    print(f"Sum of radii: {sum_radii}")
+    visualize(centers, radii)
+```
+
+**Why this works:**
+- The LLM can evolve the packing algorithm (`construct_packing`)
+- Helper function `compute_max_radii` is also evolvable
+- Interface `run_packing()` stays fixed (evaluator depends on it)
+- Visualization code is preserved
+
+**Source:** `benchmarks/math/circle_packing/initial_program.py:1`
+
+---
+
+### Example 2: GPU Load Balancing
+
+**Problem:** Optimize expert parallelism load balancing.
+
+```python
+# SPDX-License-Identifier: Apache-2.0
+"""Expert parallelism load balancer (EPLB) for vLLM."""
+
+# EVOLVE-BLOCK-START
+import torch
+
+def balanced_packing(
+    weight: torch.Tensor,
+    num_packs: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Pack n weighted objects to m packs, such that each bin contains exactly
+    n/m objects and the weights of all packs are as balanced as possible.
+
+    Parameters:
+        weight: [X, n], the weight of each item
+        num_packs: number of packs
+
+    Returns:
+        pack_index: [X, n], the pack index of each item
+        rank_in_pack: [X, n], the rank of the item in the pack
+    """
+    num_layers, num_groups = weight.shape
+    assert num_groups % num_packs == 0
+    groups_per_pack = num_groups // num_packs
+
+    if groups_per_pack == 1:
+        pack_index = torch.arange(
+            weight.size(-1),
+            dtype=torch.int64,
+            device=weight.device
+        ).expand(weight.shape)
+        rank_in_pack = torch.zeros_like(weight, dtype=torch.int64)
+        return pack_index, rank_in_pack
+
+    # Sort by weight descending
+    indices = weight.float().sort(-1, descending=True).indices.cpu()
+    pack_index = torch.full_like(weight, fill_value=-1, dtype=torch.int64, device="cpu")
+    rank_in_pack = torch.full_like(pack_index, fill_value=-1)
+
+    for i in range(num_layers):
+        pack_weights = [0] * num_packs
+        pack_items = [0] * num_packs
+
+        for group in indices[i]:
+            # Greedy assignment: pick pack with minimum weight
+            pack = min(
+                (j for j in range(num_packs) if pack_items[j] < groups_per_pack),
+                key=pack_weights.__getitem__,
+            )
+            pack_index[i, group] = pack
+            rank_in_pack[i, group] = pack_items[pack]
+            pack_weights[pack] += weight[i, group]
+            pack_items[pack] += 1
+
+    return pack_index, rank_in_pack
+
+def replicate_experts(
+    weight: torch.Tensor,
+    num_phy: int
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Replicate `num_log` experts to `num_phy` replicas, such that the maximum
+    load of all replicas is minimized.
+    """
+    # Implementation here (evolvable)
+    ...
+# EVOLVE-BLOCK-END
+
+# Fixed wrapper functions
+def rearrange(weight, num_gpus):
+    """Public API - fixed interface."""
+    pack_index, rank_in_pack = balanced_packing(weight, num_gpus)
+    return pack_index, rank_in_pack
+```
+
+**Why this works:**
+- Core algorithm is evolvable
+- Public API `rearrange()` is fixed
+- License header is preserved
+- Comments and docstrings inside block can be modified
+
+**Source:** `benchmarks/ADRS/eplb/initial_program.py:14`
+
+---
+
+### Example 3: Prompt Optimization
+
+EVOLVE-BLOCKs work for **prompt evolution** too:
+
+```python
+# initial_prompt.txt
+
+# EVOLVE-BLOCK-START
+You are an expert at answering multi-hop questions.
+
+Given a question, think step-by-step:
+1. Identify the key entities
+2. Find relevant facts for each entity
+3. Combine facts to reach the answer
+
+Question: {question}
+
+Answer:
+# EVOLVE-BLOCK-END
+```
+
+The LLM evolves the prompt instructions while keeping the format consistent.
+
+## Advanced Patterns
+
+### Multiple Evolution Blocks
+
+You can have multiple blocks in one file:
+
+```python
+import numpy as np
+
+# EVOLVE-BLOCK-START: initialization
+def initialize_solution(problem_size):
+    """Generate initial solution."""
+    return np.random.random(problem_size)
+# EVOLVE-BLOCK-END
+
+def evaluate_solution(solution):
+    """Fixed evaluation function."""
+    return solution.sum()
+
+# EVOLVE-BLOCK-START: optimization
+def optimize(solution, iterations=100):
+    """Refine the solution."""
+    for i in range(iterations):
+        solution = solution * 1.01  # Simple improvement
+    return solution
+# EVOLVE-BLOCK-END
+
+def solve(problem_size):
+    """Fixed orchestration."""
+    solution = initialize_solution(problem_size)
+    solution = optimize(solution)
+    return evaluate_solution(solution)
+```
+
+Both blocks are evolved **independently** — the LLM can modify either or both.
+
+### Nested Functions
+
+Everything inside the block is evolvable, including nested definitions:
+
+```python
+# EVOLVE-BLOCK-START
+def outer():
+    def inner():
+        # This can be evolved
+        return 42
+
+    result = inner()
+    return result
+# EVOLVE-BLOCK-END
+```
+
+### Imports Inside Blocks
+
+Imports inside blocks can be evolved:
+
+```python
+import numpy as np  # Fixed import
+
+# EVOLVE-BLOCK-START
+import scipy.optimize  # This import can be changed
+
+def solve(problem):
+    # LLM might change to use different library
+    return scipy.optimize.minimize(problem.objective, problem.initial)
+# EVOLVE-BLOCK-END
+```
+
+## No Markers = Full File Evolves
+
+If you don't use EVOLVE-BLOCK markers, **the entire file is mutable**:
+
+```python
+import numpy as np
+
+# No markers - LLM can modify everything
+def solve(input_data):
+    return input_data * 2
+```
+
+This is fine for:
+- Simple problems
+- When you want maximum flexibility
+- Prompt optimization (no boilerplate)
+
+**However**, it's risky because:
+- LLM might break interface contracts
+- Boilerplate code gets regenerated every iteration
+- Harder to maintain compatibility with evaluator
+
+<Warning>
+If your evaluator imports specific functions from the program, use EVOLVE-BLOCKs to ensure those function signatures don't change.
+</Warning>
+
+## Best Practices
+
+### ✅ Do:
+
+1. **Keep interfaces fixed:**
+   ```python
+   # EVOLVE-BLOCK-START
+   def solve(problem_instance):
+       # Implementation
+       pass
+   # EVOLVE-BLOCK-END
+
+   # Fixed wrapper
+   def evaluate(program_path):
+       solution = solve(load_problem())
+       return score(solution)
+   ```
+
+2. **Preserve expensive setup:**
+   ```python
+   import torch
+   model = torch.load("pretrained.pth")  # Fixed - don't reload every iteration
+
+   # EVOLVE-BLOCK-START
+   def predict(input_data):
+       # Use the model
+       return model(input_data)
+   # EVOLVE-BLOCK-END
+   ```
+
+3. **Include helper functions in block if they should evolve:**
+   ```python
+   # EVOLVE-BLOCK-START
+   def helper(x):
+       return x * 2
+
+   def main_algorithm(data):
+       return [helper(x) for x in data]
+   # EVOLVE-BLOCK-END
+   ```
+
+4. **Document the interface:**
+   ```python
+   # EVOLVE-BLOCK-START
+   def construct_packing():
+       """
+       Returns:
+           centers: np.array of shape (26, 2)
+           radii: np.array of shape (26,)
+           sum_radii: float
+       """
+       # Implementation
+   # EVOLVE-BLOCK-END
+   ```
+
+### ❌ Don't:
+
+1. **Don't put imports outside if they might change:**
+   ```python
+   # ❌ Bad - what if LLM wants to use a different library?
+   import scipy.optimize
+
+   # EVOLVE-BLOCK-START
+   def solve(problem):
+       return scipy.optimize.minimize(...)  # Can't change to different library
+   # EVOLVE-BLOCK-END
+   ```
+
+2. **Don't split a function across markers:**
+   ```python
+   # ❌ Bad - breaks function
+   def solve(data):
+       # EVOLVE-BLOCK-START
+       result = process(data)
+       # EVOLVE-BLOCK-END
+       return result
+   ```
+
+3. **Don't put test code inside block:**
+   ```python
+   # ❌ Bad - test code will be evolved
+   # EVOLVE-BLOCK-START
+   def solve(problem):
+       return problem * 2
+
+   if __name__ == "__main__":
+       assert solve(5) == 10  # Don't evolve tests!
+   # EVOLVE-BLOCK-END
+   ```
+
+## Omitting Initial Program
+
+You can skip the initial program entirely:
+
+```bash
+skydiscover-run evaluator.py --search adaevolve --iterations 100
+```
+
+The LLM generates solutions from scratch based on:
+- The evaluator file (shown as context)
+- Problem description in config
+- Example test cases
+
+This works well for:
+- Exploratory discovery
+- Problems where you don't have a baseline
+- Prompt optimization
+
+<Info>
+When omitting the initial program, provide a detailed problem description in the config:
+
+```yaml
+prompt:
+  system_message: |
+    Generate a Python function `solve(input_data)` that ...
+    Input format: ...
+    Output format: ...
+    Constraints: ...
+```
+</Info>
+
+## How It Works Internally
+
+When you provide a program with EVOLVE-BLOCK markers:
+
+<Steps>
+  <Step title="Parse Markers">
+    SkyDiscover extracts regions between `EVOLVE-BLOCK-START` and `EVOLVE-BLOCK-END`
+  </Step>
+  
+  <Step title="Build Prompt">
+    LLM prompt includes:
+    - Full file (with markers) as context
+    - Only mutable regions in edit mode
+  </Step>
+  
+  <Step title="Generate Mutation">
+    LLM outputs new code for the evolvable regions
+  </Step>
+  
+  <Step title="Reconstruct File">
+    Replace mutable regions with LLM output, keep fixed regions unchanged
+  </Step>
+  
+  <Step title="Evaluate">
+    Write reconstructed file to disk and run evaluator
+  </Step>
+</Steps>
+
+**Code extraction:** `skydiscover/utils/code_utils.py`
+
+## Debugging
+
+To see what code is being evolved, enable prompt logging:
+
+```yaml
+search:
+  database:
+    log_prompts: true
+```
+
+Then inspect `checkpoints/checkpoint_N/prompts/<program_id>.json` to see:
+- Full context shown to LLM
+- Which regions are marked as mutable
+- LLM's generated replacement code
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Evaluators" href="/concepts/evaluators">
+    Write evaluation functions that work with evolved code
+  </Card>
+  
+  <Card title="Quick Start" href="/quickstart">
+    See EVOLVE-BLOCKs in action
+  </Card>
+</CardGroup>

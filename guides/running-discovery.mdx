@@ -1,0 +1,338 @@
+---
+title: Running Discovery
+description: Learn how to run SkyDiscover to evolve solutions using the CLI and Python API
+---
+
+## Quick Start
+
+### Using the CLI
+
+The simplest way to run SkyDiscover is with the `skydiscover-run` command:
+
+```bash
+skydiscover-run initial_program.py evaluator.py -c config.yaml -s adaevolve -i 100
+```
+
+**Required arguments:**
+- `initial_program.py` - Starting solution (optional for from-scratch generation)
+- `evaluator.py` - Scoring function that returns metrics
+
+**Common flags:**
+- `-c, --config` - Path to YAML configuration file
+- `-s, --search` - Search algorithm (topk, adaevolve, beam_search, evox, gepa, openevolve)
+- `-i, --iterations` - Maximum number of iterations (default: 100)
+- `-m, --model` - Model name(s), comma-separated (e.g., `gpt-5`, `gemini/gemini-3-pro`)
+- `-o, --output` - Output directory for results
+- `--agentic` - Enable agentic mode for codebase-aware generation
+- `--api-base` - Custom API endpoint URL
+- `-l, --log-level` - Logging level (DEBUG, INFO, WARNING, ERROR)
+
+### Using the Python API
+
+<CodeGroup>
+
+```python Basic Usage
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="examples/my_problem/eval.py",
+    initial_program="examples/my_problem/init.py",
+    model="gpt-5",
+    iterations=50,
+)
+
+print(f"Best score: {result.best_score}")
+print(f"Solution:\n{result.best_solution}")
+```
+
+```python Advanced Configuration
+from skydiscover import run_discovery
+from skydiscover.config import Config
+
+# Load custom config
+config = Config.from_yaml("config.yaml")
+
+result = run_discovery(
+    evaluator="eval.py",
+    initial_program="init.py",
+    config=config,
+    search="adaevolve",
+    iterations=100,
+    output_dir="./outputs/run_001",
+    agentic=True,
+    system_prompt="You are an expert in computational geometry.",
+)
+
+print(f"Improvement: {result.best_score / result.initial_score:.2%}")
+```
+
+```python Callable Evaluator
+from skydiscover import discover_solution
+
+def my_evaluator(solution: str) -> dict:
+    # Score the solution
+    score = evaluate_somehow(solution)
+    return {"combined_score": score, "accuracy": 0.95}
+
+result = discover_solution(
+    evaluator=my_evaluator,
+    initial_solution="def solve(x): return x",
+    iterations=50,
+    model="gpt-5",
+)
+```
+
+</CodeGroup>
+
+## Search Algorithms
+
+<CardGroup cols={2}>
+  <Card title="topk" icon="list-ol">
+    Simple top-k selection. Good baseline for quick experiments.
+    
+    ```bash
+    -s topk
+    ```
+  </Card>
+  
+  <Card title="adaevolve" icon="chart-line">
+    Adaptive multi-island evolution with dynamic search intensity.
+    
+    ```bash
+    -s adaevolve
+    ```
+  </Card>
+  
+  <Card title="beam_search" icon="code-branch">
+    Beam search with diversity-weighted selection.
+    
+    ```bash
+    -s beam_search
+    ```
+  </Card>
+  
+  <Card title="evox" icon="dna">
+    Co-evolution of solutions and search strategies.
+    
+    ```bash
+    -s evox
+    ```
+  </Card>
+  
+  <Card title="gepa" icon="filter">
+    Guided evolution with acceptance gating and merging.
+    
+    ```bash
+    -s gepa
+    ```
+  </Card>
+  
+  <Card title="openevolve" icon="sparkles">
+    MAP-Elites with island-based exploration (external package).
+    
+    ```bash
+    pip install openevolve
+    -s openevolve
+    ```
+  </Card>
+</CardGroup>
+
+## CLI Examples
+
+### Basic Run
+
+```bash
+# Run with default config
+skydiscover-run benchmarks/math/circle_packing/initial_program.py \
+  benchmarks/math/circle_packing/evaluator.py
+```
+
+### Specify Model and Search Algorithm
+
+```bash
+# Use GPT-5 with AdaEvolve search
+skydiscover-run init.py eval.py \
+  -m gpt-5 \
+  -s adaevolve \
+  -i 200
+```
+
+### Multiple Models
+
+```bash
+# Use multiple models with automatic sampling
+skydiscover-run init.py eval.py \
+  -m "gpt-5,gemini/gemini-3-pro,claude-3-7-sonnet" \
+  -i 100
+```
+
+### Custom API Endpoint
+
+```bash
+# Use local vLLM server
+skydiscover-run init.py eval.py \
+  --api-base http://localhost:8000/v1 \
+  -m qwen/Qwen2.5-Coder-32B-Instruct
+```
+
+### Agentic Mode
+
+```bash
+# Enable codebase-aware generation
+skydiscover-run benchmarks/math/circle_packing/initial_program.py \
+  benchmarks/math/circle_packing/evaluator.py \
+  --agentic \
+  -m gpt-5
+```
+
+### Resume from Checkpoint
+
+```bash
+# Resume from saved checkpoint
+skydiscover-run init.py eval.py \
+  --checkpoint outputs/adaevolve/problem_0305_1430/checkpoints/checkpoint_50
+```
+
+## Understanding Results
+
+### Output Directory Structure
+
+```
+outputs/adaevolve/circle_packing_0305_1430/
+├── best_program.py          # Best solution found
+├── database.db             # SQLite database of all programs
+├── logs/                   # Detailed run logs
+├── checkpoints/            # Periodic checkpoints
+│   ├── checkpoint_10/
+│   ├── checkpoint_20/
+│   └── checkpoint_50/
+└── programs/               # All generated programs
+    ├── program_0001.py
+    ├── program_0002.py
+    └── ...
+```
+
+### DiscoveryResult Fields
+
+<ResponseField name="best_program" type="Program">
+  Full Program object with code, metrics, and lineage
+</ResponseField>
+
+<ResponseField name="best_score" type="float">
+  The `combined_score` from the best program's metrics
+</ResponseField>
+
+<ResponseField name="best_solution" type="str">
+  Source code of the best solution
+</ResponseField>
+
+<ResponseField name="metrics" type="dict">
+  All metrics returned by the evaluator for the best program
+</ResponseField>
+
+<ResponseField name="initial_score" type="float">
+  Score of the initial program (if provided)
+</ResponseField>
+
+<ResponseField name="output_dir" type="str">
+  Path to the output directory (None if cleanup=True)
+</ResponseField>
+
+## Environment Variables
+
+<ParamField path="OPENAI_API_KEY" type="string" required>
+  OpenAI API key (or set per-model in config)
+</ParamField>
+
+<ParamField path="GEMINI_API_KEY" type="string">
+  Google Gemini API key (alias: `GOOGLE_API_KEY`)
+</ParamField>
+
+<ParamField path="ANTHROPIC_API_KEY" type="string">
+  Anthropic Claude API key
+</ParamField>
+
+<ParamField path="DEEPSEEK_API_KEY" type="string">
+  DeepSeek API key
+</ParamField>
+
+<ParamField path="OPENAI_API_BASE" type="string">
+  Override the default API base URL (alias: `OPENAI_BASE_URL`)
+</ParamField>
+
+## From-Scratch Generation
+
+You can omit the initial program to have the LLM generate solutions from scratch:
+
+```bash
+# CLI: pass evaluator only
+skydiscover-run evaluator.py -m gpt-5 -i 50
+```
+
+```python
+# API: omit initial_program
+result = run_discovery(
+    evaluator="evaluator.py",
+    initial_program=None,  # Generate from scratch
+    model="gpt-5",
+    iterations=50,
+)
+```
+
+<Tip>
+For from-scratch generation, provide a detailed `system_message` in your config describing the problem, input/output format, and constraints.
+</Tip>
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Parallel Iterations">
+    Speed up discovery by running multiple iterations concurrently:
+    
+    ```yaml
+    max_parallel_iterations: 4  # Run 4 iterations in parallel
+    ```
+    
+    Works best with fast evaluators and sufficient API rate limits.
+  </Accordion>
+  
+  <Accordion title="Cascade Evaluation">
+    Exit early on low-scoring programs:
+    
+    ```yaml
+    evaluator:
+      cascade_evaluation: true
+      cascade_thresholds: [0.3, 0.6]  # Quick check, then full eval
+    ```
+    
+    Implement `evaluate_stage1()` and `evaluate_stage2()` in your evaluator.
+  </Accordion>
+  
+  <Accordion title="Checkpoint Regularly">
+    Save progress and resume if interrupted:
+    
+    ```yaml
+    checkpoint_interval: 10  # Save every 10 iterations
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Writing Evaluators" icon="flask" href="/guides/writing-evaluators">
+    Learn how to write effective scoring functions
+  </Card>
+  
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Deep dive into YAML configuration options
+  </Card>
+  
+  <Card title="Model Providers" icon="server" href="/guides/model-providers">
+    Set up OpenAI, Gemini, Anthropic, and local models
+  </Card>
+  
+  <Card title="Monitoring" icon="chart-line" href="/guides/monitoring">
+    Watch your discovery run in real-time
+  </Card>
+</CardGroup>

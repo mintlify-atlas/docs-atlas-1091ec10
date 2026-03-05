@@ -1,0 +1,355 @@
+---
+title: skydiscover-viewer
+description: Replay and visualize completed SkyDiscover runs
+---
+
+## Overview
+
+The `skydiscover-viewer` command loads checkpoint data from completed SkyDiscover runs and serves an interactive web dashboard for exploring results. It allows you to replay the evolution process, inspect programs, analyze metrics, and understand the search trajectory.
+
+## Basic Syntax
+
+```bash
+skydiscover-viewer <path> [OPTIONS]
+```
+
+## Positional Arguments
+
+<ParamField path="path" type="string" required>
+  Path to the output directory or checkpoint to visualize.
+  
+  The viewer automatically detects:
+  - Direct checkpoint directories (contains `metadata.json` + `programs/`)
+  - Output directories (contains `checkpoints/` subdirectory)
+  - Island-based runs (contains `island/checkpoints/`)
+  - Flat directories with program JSON files
+  
+  **Example:** `./results/evox_20260305_143022`
+</ParamField>
+
+## Options
+
+<ParamField path="--port" type="integer" default="8765">
+  Port number for the web dashboard server.
+  
+  **Example:**
+  ```bash
+  skydiscover-viewer ./results/exp_1 --port 9000
+  ```
+</ParamField>
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Host address to bind the server to. Use `0.0.0.0` to allow external connections.
+  
+  **Example:**
+  ```bash
+  skydiscover-viewer ./results/exp_1 --host 0.0.0.0
+  ```
+</ParamField>
+
+<ParamField path="--summary-model" type="string" default="gpt-5-mini (if OPENAI_API_KEY set)">
+  LLM model to use for generating per-program summaries and global analysis. Requires the `OPENAI_API_KEY` environment variable.
+  
+  If not specified and `OPENAI_API_KEY` is set, defaults to `gpt-5-mini`. Set to empty string to disable summaries.
+  
+  **Example:**
+  ```bash
+  skydiscover-viewer ./results/exp_1 --summary-model gpt-5
+  ```
+</ParamField>
+
+## Examples
+
+### Basic Visualization
+
+View results from a completed run:
+
+```bash
+skydiscover-viewer ./results/evox_20260305_143022
+```
+
+Output:
+```
+INFO Loading from: ./results/evox_20260305_143022/checkpoints/checkpoint_500
+INFO Loaded 1247 programs (best=prog_892, last_iter=500)
+
+  Dashboard ready at http://localhost:8765/
+  1247 programs loaded from ./results/evox_20260305_143022/checkpoints/checkpoint_500
+  Per-program summaries: gpt-5-mini
+  Press Ctrl+C to stop
+```
+
+### Custom Port
+
+Run on a different port:
+
+```bash
+skydiscover-viewer ./results/exp_1 --port 9000
+```
+
+Access at: `http://localhost:9000/`
+
+### External Access
+
+Allow connections from other machines:
+
+```bash
+skydiscover-viewer ./results/exp_1 --host 0.0.0.0 --port 8765
+```
+
+Access from any device on the network at: `http://<your-ip>:8765/`
+
+### Disable Summaries
+
+View without LLM-generated summaries:
+
+```bash
+skydiscover-viewer ./results/exp_1 --summary-model ""
+```
+
+### Custom Summary Model
+
+Use a specific model for summaries:
+
+```bash
+export OPENAI_API_KEY=sk-...
+skydiscover-viewer ./results/exp_1 --summary-model gpt-5
+```
+
+### View Specific Checkpoint
+
+Load a specific checkpoint iteration:
+
+```bash
+skydiscover-viewer ./results/exp_1/checkpoints/checkpoint_250
+```
+
+## Path Auto-Detection
+
+The viewer intelligently finds checkpoint data from various directory structures:
+
+<Tabs>
+  <Tab title="Standard Run">
+    ```bash
+    skydiscover-viewer ./results/evox_20260305_143022
+    ```
+    
+    Finds: `./results/evox_20260305_143022/checkpoints/checkpoint_500/`
+  </Tab>
+  
+  <Tab title="Island Search">
+    ```bash
+    skydiscover-viewer ./results/island_run
+    ```
+    
+    Finds: `./results/island_run/island/checkpoints/checkpoint_300/`
+  </Tab>
+  
+  <Tab title="Direct Checkpoint">
+    ```bash
+    skydiscover-viewer ./results/exp_1/checkpoints/checkpoint_150
+    ```
+    
+    Uses: `./results/exp_1/checkpoints/checkpoint_150/` directly
+  </Tab>
+  
+  <Tab title="Flat Directory">
+    ```bash
+    skydiscover-viewer ./exported_programs
+    ```
+    
+    Loads all `*.json` program files from the directory
+  </Tab>
+</Tabs>
+
+## Dashboard Features
+
+The interactive web dashboard provides:
+
+### 1. Evolution Graph
+- Visualize the program evolution tree
+- See parent-child relationships
+- Color-coded by label type (diverge, refine, crossover)
+- Interactive node selection for details
+
+### 2. Metrics Timeline
+- Track score progression over iterations
+- Identify improvement plateaus
+- Compare multiple metric dimensions
+
+### 3. Program Inspector
+- View full program source code
+- See evaluation metrics
+- Compare with parent program
+- Access LLM-generated summaries
+
+### 4. Search Statistics
+- Total programs evaluated
+- Best score achieved
+- Iterations since last improvement
+- Programs per minute (for live runs)
+
+### 5. Island View (if applicable)
+- Multi-island parallel search visualization
+- Cross-island comparison
+- Island-specific statistics
+
+## Data Format
+
+The viewer loads programs from checkpoint directories:
+
+```
+checkpoint_500/
+├── metadata.json          # Run metadata
+│   ├── best_program_id
+│   ├── last_iteration
+│   └── timestamp
+└── programs/              # Individual programs
+    ├── prog_001.json
+    ├── prog_002.json
+    └── ...
+```
+
+Each program JSON contains:
+
+```json
+{
+  "id": "prog_001",
+  "iteration_found": 10,
+  "solution": "def algorithm(x):\n    return x * 2",
+  "metrics": {
+    "combined_score": 0.85,
+    "accuracy": 0.90,
+    "efficiency": 0.80
+  },
+  "parent_id": "prog_000",
+  "parent_info": ["refine", "Improve efficiency"],
+  "other_context_ids": [],
+  "generation": 1,
+  "metadata": {
+    "label_type": "refine",
+    "island": 0,
+    "image_path": null
+  }
+}
+```
+
+## Per-Program Summaries
+
+When `--summary-model` is specified and `OPENAI_API_KEY` is available, the viewer generates:
+
+<AccordionGroup>
+  <Accordion title="Program Summaries">
+    - High-level description of what the program does
+    - Key algorithmic innovations
+    - Changes from parent program
+    - Why the score improved or degraded
+  </Accordion>
+  
+  <Accordion title="Global Summary">
+    - Overall search trajectory analysis
+    - Breakthrough moments
+    - Common patterns in successful programs
+    - Recommendations for future runs
+  </Accordion>
+</AccordionGroup>
+
+## Environment Variables
+
+<ParamField path="OPENAI_API_KEY" type="string">
+  Required for LLM-generated summaries. Set this to enable the summary feature.
+  
+  ```bash
+  export OPENAI_API_KEY=sk-your-key-here
+  skydiscover-viewer ./results/exp_1
+  ```
+</ParamField>
+
+## Error Handling
+
+### No Checkpoint Data Found
+
+```
+Error: no checkpoint data found in './results/empty_dir'
+```
+
+**Solution:** Ensure the path points to a valid output directory or checkpoint. Check that the run completed and saved checkpoints.
+
+### No Programs Found
+
+```
+Error: no programs found in './results/exp_1/checkpoints/checkpoint_0'
+```
+
+**Solution:** The checkpoint may be from iteration 0 before any programs were generated. Use a later checkpoint.
+
+### Port Already in Use
+
+```
+Error: [Errno 48] Address already in use
+```
+
+**Solution:** Use a different port with `--port` or stop the other service using port 8765.
+
+### Missing API Key for Summaries
+
+```
+Per-program summaries: disabled (set OPENAI_API_KEY or --summary-model)
+```
+
+**Solution:** Export `OPENAI_API_KEY` or run without summaries.
+
+## Performance Tips
+
+<Tip>
+  **Large Runs:** For runs with 10,000+ programs, the viewer may take 10-20 seconds to load. The dashboard remains responsive once loaded.
+</Tip>
+
+<Tip>
+  **Summary Generation:** LLM summaries are generated on-demand. Disable with `--summary-model ""` for faster loading without summaries.
+</Tip>
+
+<Tip>
+  **Network Access:** When sharing the dashboard with a team, use `--host 0.0.0.0` but be aware of security implications. Consider using SSH tunneling for remote access:
+  
+  ```bash
+  ssh -L 8765:localhost:8765 user@remote-server
+  ```
+</Tip>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Result Analysis" icon="chart-line">
+    Review completed runs to understand which strategies worked best and identify breakthrough moments.
+  </Card>
+  
+  <Card title="Debugging" icon="bug">
+    Inspect failed programs, track down evaluation errors, and understand why certain mutations didn't improve scores.
+  </Card>
+  
+  <Card title="Presentations" icon="presentation-screen">
+    Demonstrate the evolution process to stakeholders with the interactive visualization.
+  </Card>
+  
+  <Card title="Comparison" icon="code-compare">
+    Load multiple checkpoints in different browser tabs to compare different search algorithms or hyperparameters.
+  </Card>
+</CardGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="skydiscover-run" icon="play" href="/cli/skydiscover-run">
+    Run discovery to generate results
+  </Card>
+  <Card title="Checkpoints" icon="floppy-disk" href="/guides/running-discovery">
+    Understanding checkpoint structure
+  </Card>
+  <Card title="Monitor Dashboard" icon="monitor" href="/guides/monitoring">
+    Live monitoring during runs
+  </Card>
+  <Card title="Results Analysis" icon="magnifying-glass-chart" href="/cli/skydiscover-viewer">
+    Analyzing and interpreting results
+  </Card>
+</CardGroup>

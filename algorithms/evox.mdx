@@ -1,0 +1,262 @@
+---
+title: 'EvoX'
+description: 'Self-evolving search paradigm that co-adapts solution generation and experience management'
+icon: 'dna'
+---
+
+## Overview
+
+EvoX is a meta-evolution algorithm that dynamically evolves the optimization strategy itself using LLMs. Unlike traditional algorithms with fixed search strategies, EvoX treats the search algorithm as a program that can be evolved alongside the solutions.
+
+<Card title="Research Paper" icon="file-lines" href="https://arxiv.org/abs/2602.23413">
+  Read the full EvoX paper on ArXiv
+</Card>
+
+## Key Concept
+
+EvoX implements **co-evolution**: it simultaneously evolves two things:
+
+1. **Solution programs**: The actual solutions to your optimization problem
+2. **Search algorithms**: The strategy used to generate and select solution programs
+
+The search algorithm is scored based on how much it improves the solution quality during a scoring window, then evolved just like a solution program.
+
+<CardGroup cols={2}>
+  <Card title="Self-Adaptation" icon="rotate">
+    The search strategy adapts itself based on what works for your specific problem
+  </Card>
+  <Card title="Meta-Learning" icon="brain">
+    Learns optimal exploration/exploitation balance automatically
+  </Card>
+  <Card title="Variation Operators" icon="sliders">
+    Auto-generates problem-specific diverge and refine prompts
+  </Card>
+  <Card title="Stagnation-Driven" icon="gauge">
+    Evolves search strategy when solution progress stagnates
+  </Card>
+</CardGroup>
+
+## How It Works
+
+### Co-Evolution Loop
+
+1. **Solution Evolution**: Use current search algorithm to evolve solutions
+2. **Stagnation Detection**: Track solution improvement over a window
+3. **Search Evolution**: When stagnant, evolve the search algorithm
+4. **Strategy Switch**: Load new search algorithm and continue
+
+### Search Algorithm Scoring
+
+Each search algorithm is evaluated based on:
+
+```python
+# Metrics computed over a scoring window
+{
+  "combined_score": weighted_improvement,
+  "absolute_improvement": best_end - best_start,
+  "relative_improvement": (best_end - best_start) / max(abs(best_start), 1e-6),
+  "iterations_to_improvement": first_improvement_iteration,
+  "improvement_rate": improvements_per_iteration
+}
+```
+
+### Variation Operators
+
+EvoX auto-generates two types of mutation operators:
+
+- **Diverge**: Encourages exploration of new solution spaces
+- **Refine**: Encourages exploitation of known good solutions
+
+These are generated once at the start based on your problem description and evaluator.
+
+## Configuration
+
+### Basic Usage
+
+```bash
+skydiscover-run initial_program.py evaluator.py \
+  --search evox \
+  --iterations 100
+```
+
+### Configuration File
+
+EvoX requires a special configuration that points to:
+1. Your **solution problem** (the main optimization task)
+2. An **initial search algorithm** (starting strategy)
+3. A **search algorithm evaluator** (how to score search strategies)
+
+```yaml
+search:
+  type: evox
+  database:
+    # Path to initial search algorithm (Python file with Database class)
+    database_file_path: "search_algorithms/topk_search.py"
+    
+    # Path to search algorithm evaluator
+    evaluation_file: "search_algorithms/search_evaluator.py"
+    
+    # Optional: config for search algorithm evolution
+    config_path: "search_algorithms/search_config.yaml"
+    
+    # Auto-generate variation operators
+    auto_generate_variation_operators: true
+  
+  # Output directory for search algorithms
+  output_dir: "outputs/evox"
+```
+
+## Configuration Options
+
+<ParamField path="database_file_path" type="string" required>
+  Path to initial search algorithm Python file (must define a Database class)
+</ParamField>
+
+<ParamField path="evaluation_file" type="string" required>
+  Path to search algorithm evaluator (scores search strategies)
+</ParamField>
+
+<ParamField path="config_path" type="string">
+  Optional config file for search algorithm evolution
+</ParamField>
+
+<ParamField path="auto_generate_variation_operators" type="bool" default="true">
+  Auto-generate diverge/refine prompts based on problem description
+</ParamField>
+
+<ParamField path="switch_ratio" type="float" default="0.10">
+  Fraction of iterations to wait before considering search evolution (stagnation threshold)
+</ParamField>
+
+<ParamField path="improvement_threshold" type="float" default="0.01">
+  Minimum improvement to reset stagnation counter
+</ParamField>
+
+## Initial Search Algorithm
+
+Your initial search algorithm should be a Python file defining a Database class:
+
+```python
+from skydiscover.search.base_database import ProgramDatabase, Program
+from typing import Tuple, List
+
+class CustomSearchDatabase(ProgramDatabase):
+    """Your custom search algorithm."""
+    
+    def sample(
+        self, 
+        num_context_programs: int = 4,
+        **kwargs
+    ) -> Tuple[Program, List[Program]]:
+        """Select parent and context programs."""
+        # Your sampling logic
+        parent = self.get_best_program()
+        context = self.get_top_programs(num_context_programs)
+        return parent, context
+    
+    def add(self, program: Program, iteration: int = None, **kwargs):
+        """Add a program to the database."""
+        # Your selection/archive logic
+        self.programs[program.id] = program
+        self._update_best_program(program)
+```
+
+## Search Algorithm Evaluator
+
+The evaluator scores how well a search algorithm performs:
+
+```python
+def evaluate(search_algorithm_path: str) -> dict:
+    """Evaluate a search algorithm.
+    
+    This is called AFTER the search algorithm has run for a window,
+    with metrics already computed. Just return them.
+    """
+    # Metrics are computed automatically by EvoX
+    # This is a pass-through evaluator
+    return {}
+```
+
+<Note>
+  The search evaluator is typically simple because EvoX automatically computes improvement metrics. The evaluator mainly exists for consistency with the framework.
+</Note>
+
+## When to Use EvoX
+
+<AccordionGroup>
+  <Accordion title="Best For" icon="check">
+    - Problems where the optimal search strategy is unknown
+    - Long discovery runs where search adaptation provides value
+    - Problems with complex fitness landscapes
+    - Research on meta-learning and algorithm design
+  </Accordion>
+  
+  <Accordion title="Avoid When" icon="xmark">
+    - Short runs (< 50 iterations) - not enough time for meta-evolution
+    - Well-understood problems with known optimal strategies
+    - Limited LLM budget (meta-evolution uses extra LLM calls)
+    - Need for deterministic/reproducible search behavior
+  </Accordion>
+</AccordionGroup>
+
+## Performance
+
+EvoX achieves state-of-the-art results on multiple benchmarks:
+
+- **Frontier-CS**: ~34% median improvement over baseline algorithms
+- **Adaptive to problem**: Learns problem-specific search strategies
+- **Meta-optimization**: Discovers novel search patterns not in initial algorithm
+
+## Example: Custom Problem
+
+```bash
+# 1. Create your initial search algorithm
+cat > my_search.py << 'EOF'
+from skydiscover.search.topk.database import TopKDatabase
+
+# Start with Top-K, let EvoX evolve it
+class MySearchDatabase(TopKDatabase):
+    pass
+EOF
+
+# 2. Create search evaluator (pass-through)
+cat > search_eval.py << 'EOF'
+def evaluate(search_path: str) -> dict:
+    return {}  # Metrics computed automatically
+EOF
+
+# 3. Run EvoX
+skydiscover-run solution.py evaluator.py \
+  --search evox \
+  --config evox_config.yaml
+```
+
+## Advanced Features
+
+### Fallback Mechanism
+
+If a newly evolved search algorithm causes errors, EvoX automatically:
+1. Reverts to the previous working algorithm
+2. Migrates any successful solutions found during the failed attempt
+3. Continues evolution with the stable algorithm
+
+### Migration Between Algorithms
+
+When switching to a new search algorithm, EvoX:
+- Copies all existing solutions to the new database
+- Preserves prompt history and metadata
+- Recalculates best program tracking
+
+### Comprehensive Logging
+
+EvoX logs each evolved search algorithm to the output directory with:
+- Full source code
+- Performance metrics
+- Variation operators used
+- Database statistics before and after
+
+## Related Algorithms
+
+- [AdaEvolve](/algorithms/adaevolve) - Fixed adaptive search with island architecture
+- [GEPA Native](/algorithms/gepa-native) - Pareto-efficient search with reflective prompting
+- [Top-K](/algorithms/topk) - Simple baseline to start EvoX with

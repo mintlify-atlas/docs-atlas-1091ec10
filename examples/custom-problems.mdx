@@ -1,0 +1,592 @@
+---
+title: Creating Custom Problems
+description: Learn how to create your own optimization benchmarks with custom evaluators and initial programs
+icon: "wrench"
+---
+
+You can create custom optimization problems for SkyDiscover by writing an evaluator and optionally providing a seed program. This guide shows you how.
+
+## Minimal Example
+
+Only **one file is required**: an evaluator. A seed program is optional but recommended.
+
+### Step 1: Write the Evaluator
+
+The evaluator scores whatever the LLM produces. It must return a dictionary with `combined_score`:
+
+<CodeGroup>
+```python evaluator.py
+def evaluate(program_path: str) -> dict:
+    """
+    Evaluate a program and return a score.
+    
+    Args:
+        program_path: Path to the generated .py file (or .txt for prompts)
+    
+    Returns:
+        dict with 'combined_score' (required) and any other metrics
+    """
+    # Import and run the program
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("program", program_path)
+    program = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(program)
+    
+    # Run your evaluation logic
+    result = program.solve(test_input)
+    score = compute_score(result, expected_output)
+    
+    # Return metrics (combined_score is required)
+    return {
+        "combined_score": score,
+        "accuracy": accuracy,
+        "runtime": runtime
+    }
+```
+</CodeGroup>
+
+<Warning>
+**Important:** Always return `{"combined_score": 0.0, "error": "..."}` on failure instead of raising an exception. This allows evolution to continue even when candidates fail.
+</Warning>
+
+### Step 2: Write the Initial Program (Optional)
+
+Provide a starting solution with an `EVOLVE-BLOCK` marking what to evolve:
+
+<CodeGroup>
+```python initial_program.py
+# EVOLVE-BLOCK-START
+def solve(input_data):
+    """Your initial solution - LLM will improve this"""
+    return input_data  # Naive baseline
+# EVOLVE-BLOCK-END
+
+# Code outside the block stays fixed
+if __name__ == "__main__":
+    result = solve(test_input)
+    print(f"Result: {result}")
+```
+</CodeGroup>
+
+<Tip>
+The `EVOLVE-BLOCK` markers tell SkyDiscover what code to evolve. Everything outside the block remains unchanged.
+</Tip>
+
+### Step 3: Create Config (Optional)
+
+Provide search settings and a system prompt:
+
+<CodeGroup>
+```yaml config.yaml
+system_prompt: |
+  You are optimizing a solution for [describe your problem].
+  Focus on [key optimization goals].
+  
+language: python
+diff_based_generation: true
+
+search_algorithm:
+  population_size: 20
+  tournament_size: 3
+```
+</CodeGroup>
+
+### Step 4: Run Evolution
+
+```bash
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+If you don't provide `initial_program.py`, SkyDiscover will start from scratch.
+
+## Complete Example: String Compression
+
+Let's create a benchmark for evolving string compression algorithms.
+
+### Directory Structure
+
+```
+benchmarks/string_compression/
+├── evaluator.py
+├── initial_program.py
+├── config.yaml
+└── test_data/
+    ├── text1.txt
+    ├── text2.txt
+    └── text3.txt
+```
+
+### Evaluator
+
+<CodeGroup>
+```python evaluator.py
+import importlib.util
+import os
+import traceback
+from pathlib import Path
+
+def evaluate(program_path: str) -> dict:
+    """
+    Evaluate a string compression algorithm.
+    
+    Metrics:
+    - compression_ratio: compressed_size / original_size (lower is better)
+    - correctness: 1.0 if decompression recovers original, 0.0 otherwise
+    - combined_score: Higher is better (inverted compression ratio)
+    """
+    try:
+        # Load the program
+        spec = importlib.util.spec_from_file_location("program", program_path)
+        program = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(program)
+        
+        # Check required functions exist
+        if not hasattr(program, 'compress') or not hasattr(program, 'decompress'):
+            return {
+                "combined_score": 0.0,
+                "error": "Missing compress() or decompress() function"
+            }
+        
+        # Test on multiple files
+        test_dir = Path(__file__).parent / "test_data"
+        total_original_size = 0
+        total_compressed_size = 0
+        all_correct = True
+        
+        for test_file in test_dir.glob("*.txt"):
+            with open(test_file, 'r') as f:
+                original_text = f.read()
+            
+            # Compress
+            compressed = program.compress(original_text)
+            
+            # Decompress and verify
+            decompressed = program.decompress(compressed)
+            
+            if decompressed != original_text:
+                all_correct = False
+                break
+            
+            # Measure sizes (in bytes)
+            original_size = len(original_text.encode('utf-8'))
+            compressed_size = len(str(compressed).encode('utf-8'))
+            
+            total_original_size += original_size
+            total_compressed_size += compressed_size
+        
+        # Compute metrics
+        if not all_correct:
+            return {
+                "combined_score": 0.0,
+                "correctness": 0.0,
+                "error": "Decompression failed to recover original"
+            }
+        
+        compression_ratio = total_compressed_size / total_original_size
+        
+        # Higher score is better, so invert compression ratio
+        # Cap at 10x improvement to avoid division by zero
+        combined_score = min(10.0, 1.0 / compression_ratio)
+        
+        return {
+            "combined_score": float(combined_score),
+            "compression_ratio": float(compression_ratio),
+            "original_size_bytes": int(total_original_size),
+            "compressed_size_bytes": int(total_compressed_size),
+            "correctness": 1.0,
+            "num_test_files": len(list(test_dir.glob("*.txt")))
+        }
+    
+    except Exception as e:
+        print(f"Evaluation failed: {str(e)}")
+        traceback.print_exc()
+        return {
+            "combined_score": 0.0,
+            "error": str(e)
+        }
+```
+</CodeGroup>
+
+### Initial Program
+
+<CodeGroup>
+```python initial_program.py
+# EVOLVE-BLOCK-START
+def compress(text: str) -> str:
+    """
+    Compress text using run-length encoding (naive baseline).
+    
+    Args:
+        text: Input string to compress
+    
+    Returns:
+        Compressed representation as string
+    """
+    if not text:
+        return ""
+    
+    compressed = []
+    count = 1
+    current_char = text[0]
+    
+    for char in text[1:]:
+        if char == current_char:
+            count += 1
+        else:
+            compressed.append(f"{count}{current_char}")
+            current_char = char
+            count = 1
+    
+    compressed.append(f"{count}{current_char}")
+    return "".join(compressed)
+
+def decompress(compressed: str) -> str:
+    """
+    Decompress text compressed with compress().
+    
+    Args:
+        compressed: Compressed string
+    
+    Returns:
+        Original text
+    """
+    result = []
+    i = 0
+    
+    while i < len(compressed):
+        # Read count
+        count_str = ""
+        while i < len(compressed) and compressed[i].isdigit():
+            count_str += compressed[i]
+            i += 1
+        
+        # Read character
+        if i < len(compressed):
+            char = compressed[i]
+            result.append(char * int(count_str))
+            i += 1
+    
+    return "".join(result)
+# EVOLVE-BLOCK-END
+
+# Testing code (stays fixed)
+if __name__ == "__main__":
+    test_text = "aaabbbcccaaa"
+    compressed = compress(test_text)
+    decompressed = decompress(compressed)
+    
+    print(f"Original: {test_text}")
+    print(f"Compressed: {compressed}")
+    print(f"Decompressed: {decompressed}")
+    print(f"Match: {test_text == decompressed}")
+```
+</CodeGroup>
+
+### Configuration
+
+<CodeGroup>
+```yaml config.yaml
+system_prompt: |
+  You are designing a string compression algorithm.
+  
+  Goals:
+  1. Maximize compression ratio (smaller compressed size)
+  2. Ensure perfect decompression (lossless)
+  3. Handle various text patterns (repeated chars, words, etc.)
+  
+  The baseline uses run-length encoding. Consider:
+  - Dictionary-based compression
+  - Huffman coding
+  - Pattern detection
+  - Hybrid approaches
+  
+language: python
+diff_based_generation: true
+
+search_algorithm:
+  population_size: 20
+  tournament_size: 3
+```
+</CodeGroup>
+
+### Test Data
+
+Create sample test files:
+
+<CodeGroup>
+```txt test_data/text1.txt
+aaaaaabbbbbcccccddddd
+aaaaaabbbbbcccccddddd
+aaaaaabbbbbcccccddddd
+```
+
+```txt test_data/text2.txt
+The quick brown fox jumps over the lazy dog.
+The quick brown fox jumps over the lazy dog.
+The quick brown fox jumps over the lazy dog.
+```
+
+```txt test_data/text3.txt
+01010101010101010101
+11111111111111111111
+00000000000000000000
+10101010101010101010
+```
+</CodeGroup>
+
+### Running
+
+```bash
+cd benchmarks/string_compression
+
+uv run skydiscover-run \
+  initial_program.py \
+  evaluator.py \
+  -c config.yaml \
+  -s adaevolve \
+  -i 100
+```
+
+## Prompt Optimization Example
+
+You can also optimize natural language prompts instead of code.
+
+### Evaluator for Prompts
+
+<CodeGroup>
+```python evaluator.py
+import openai
+import json
+
+def evaluate(program_path: str) -> dict:
+    """
+    Evaluate a prompt on a QA task.
+    
+    Args:
+        program_path: Path to .txt file containing the prompt
+    
+    Returns:
+        dict with accuracy as combined_score
+    """
+    # Read the prompt
+    with open(program_path, 'r') as f:
+        prompt_template = f.read()
+    
+    # Load test questions
+    with open("test_questions.json") as f:
+        questions = json.load(f)
+    
+    correct = 0
+    total = len(questions)
+    
+    # Test on each question
+    for q in questions:
+        prompt = prompt_template.replace("{question}", q["question"])
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        answer = response.choices[0].message.content.strip()
+        
+        if answer.lower() == q["answer"].lower():
+            correct += 1
+    
+    accuracy = correct / total
+    
+    return {
+        "combined_score": accuracy,
+        "correct": correct,
+        "total": total,
+        "accuracy": accuracy
+    }
+```
+</CodeGroup>
+
+### Initial Prompt
+
+<CodeGroup>
+```txt initial_prompt.txt
+Answer the following question concisely:
+
+{question}
+
+Provide only the answer without explanation.
+```
+</CodeGroup>
+
+### Configuration for Prompts
+
+<CodeGroup>
+```yaml config.yaml
+system_prompt: |
+  You are optimizing a prompt for question answering.
+  Improve the prompt to get more accurate answers.
+  
+language: text
+diff_based_generation: false  # Important for prompts!
+
+search_algorithm:
+  population_size: 10
+```
+</CodeGroup>
+
+<Warning>
+**For prompt optimization:** Set `language: text` and `diff_based_generation: false` in your config.
+</Warning>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Fail Gracefully" icon="shield">
+    Always return `{"combined_score": 0.0, "error": "..."}` instead of raising exceptions
+  </Card>
+  
+  <Card title="Validate Solutions" icon="check">
+    Check correctness before scoring. Invalid solutions should get score 0.0
+  </Card>
+  
+  <Card title="Use Multiple Tests" icon="list-check">
+    Test on diverse inputs to avoid overfitting to a single test case
+  </Card>
+  
+  <Card title="Normalize Scores" icon="scale-balanced">
+    Make scores comparable across runs (e.g., ratio to baseline)
+  </Card>
+  
+  <Card title="Add Timeouts" icon="clock">
+    Use timeouts for evaluations that might hang
+  </Card>
+  
+  <Card title="Log Metrics" icon="chart-line">
+    Return detailed metrics beyond just combined_score for analysis
+  </Card>
+</CardGroup>
+
+## File Types
+
+| Language | File Extension | EVOLVE-BLOCK |
+|----------|---------------|-------------|
+| Python | `.py` | Required |
+| C++ | `.cpp` | Optional (// for comments) |
+| Prompts | `.txt` | Not used |
+| JavaScript | `.js` | Required |
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="Constructor-based Problems" icon="hammer">
+    Like circle packing: the program constructs a solution directly.
+    
+    ```python
+    def construct_solution():
+        # Build solution
+        return solution, score
+    ```
+  </Accordion>
+  
+  <Accordion title="Optimization Problems" icon="chart-line">
+    Like systems benchmarks: optimize a strategy or algorithm.
+    
+    ```python
+    def optimize(problem_instance):
+        # Return optimized solution
+        return solution
+    ```
+  </Accordion>
+  
+  <Accordion title="Algorithm Problems" icon="code">
+    Like Frontier-CS: solve a computational problem.
+    
+    ```cpp
+    int main() {
+        // Read input, solve, output answer
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Prompt Problems" icon="message">
+    Natural language that will be sent to an LLM.
+    
+    ```txt
+    [Your prompt template with {placeholders}]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Handling Timeouts
+
+For long-running evaluations, use subprocess with timeout:
+
+<CodeGroup>
+```python evaluator.py
+import subprocess
+import sys
+import tempfile
+
+def evaluate(program_path: str) -> dict:
+    # Create wrapper script
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(f"""
+import sys
+sys.path.insert(0, '{os.path.dirname(program_path)}')
+
+import importlib.util
+spec = importlib.util.spec_from_file_location('program', '{program_path}')
+program = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(program)
+
+result = program.solve()
+print(result)
+""")
+        wrapper_path = f.name
+    
+    try:
+        # Run with timeout
+        result = subprocess.run(
+            [sys.executable, wrapper_path],
+            timeout=60,  # 60 second timeout
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return {"combined_score": 0.0, "error": "Runtime error"}
+        
+        # Parse output and score
+        output = result.stdout.strip()
+        score = compute_score(output)
+        
+        return {"combined_score": score}
+    
+    except subprocess.TimeoutExpired:
+        return {"combined_score": 0.0, "error": "Timeout"}
+    
+    finally:
+        os.unlink(wrapper_path)
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Math Examples" icon="function" href="/examples/math-optimization">
+    See mathematical benchmarks
+  </Card>
+  <Card title="Systems Examples" icon="server" href="/examples/systems-optimization">
+    See systems benchmarks
+  </Card>
+  <Card title="Algorithm Examples" icon="code" href="/examples/algorithm-design">
+    See competitive programming
+  </Card>
+</CardGroup>
+
+<Tip>
+**Simple template to copy:** Check out `benchmarks/math/heilbronn_triangle/` for a minimal, well-structured example.
+</Tip>

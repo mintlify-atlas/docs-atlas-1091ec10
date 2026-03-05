@@ -1,80 +1,369 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get started with SkyDiscover in under 5 minutes
 ---
 
-## Get started in three steps
+Get your first AI-driven discovery running in minutes with this step-by-step guide.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- **Python 3.10 or higher** (3.10-3.13 supported)
+- **[uv](https://docs.astral.sh/uv/)** package manager (recommended) or pip
+- **LLM API key** (OpenAI, Gemini, Claude, or local model)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+## Quick Setup
+
+<Steps>
+  <Step title="Install SkyDiscover">
+    Install the base package with uv:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    git clone https://github.com/skydiscover-ai/skydiscover.git
+    cd skydiscover
+    uv sync
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    Or install specific extras:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    # For math benchmarks
+    uv sync --extra math
+    
+    # For multiple extras
+    uv sync --extra math --extra adrs
+    ```
+  </Step>
+  
+  <Step title="Set up API key">
+    Export your LLM API key:
+    
+    <CodeGroup>
+    ```bash OpenAI
+    export OPENAI_API_KEY="sk-your-key-here"
+    ```
+    
+    ```bash Google Gemini
+    export GEMINI_API_KEY="your-gemini-key-here"
+    ```
+    
+    ```bash Anthropic Claude
+    export ANTHROPIC_API_KEY="sk-ant-your-key-here"
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Run your first discovery">
+    Try the circle packing example (requires `--extra math`):
+    
+    ```bash
+    uv run skydiscover-run \
+      benchmarks/math/circle_packing/initial_program.py \
+      benchmarks/math/circle_packing/evaluator.py \
+      --config benchmarks/math/circle_packing/config.yaml \
+      --search adaevolve \
+      --iterations 100
+    ```
+    
+    <Accordion title="View expected output">
+      ```
+      Iteration 1/100: Best score = 2.103
+      Iteration 5/100: Best score = 2.267
+      Iteration 10/100: Best score = 2.412
+      ...
+      Iteration 100/100: Best score = 2.621
+      
+      Best solution saved to: outputs/circle_packing_adaevolve_20260305_123456/best_solution.py
+      Final score: 2.621 (target: 2.635 from AlphaEvolve)
+      ```
+    </Accordion>
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Understanding the Example
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+### The Circle Packing Problem
 
-### Step 3: Go live
+The circle packing problem asks: What's the optimal arrangement of n circles of diameter 1 in a unit circle?
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+### Initial Program
 
-## Next steps
+The starting solution uses a constructor-based approach:
 
-Now that you have your docs running, explore these key features:
+```python initial_program.py
+import numpy as np
+
+# EVOLVE-BLOCK-START
+def generate_circle_packing(n):
+    """Generate n circle positions within a unit circle."""
+    theta = np.linspace(0, 2*np.pi, n, endpoint=False)
+    r = 0.3  # Initial radius for positioning
+    positions = np.array([[r*np.cos(t), r*np.sin(t)] for t in theta])
+    return positions
+# EVOLVE-BLOCK-END
+
+if __name__ == "__main__":
+    positions = generate_circle_packing(26)
+    np.save("positions.npy", positions)
+```
+
+The `EVOLVE-BLOCK` markers tell SkyDiscover which region to optimize. Everything outside remains unchanged.
+
+### Evaluator Function
+
+The evaluator scores how tightly circles can be packed:
+
+```python evaluator.py
+import numpy as np
+
+def evaluate(program_path):
+    """Score a circle packing solution."""
+    # Execute the program
+    exec(open(program_path).read(), globals())
+    
+    # Load positions
+    positions = np.load("positions.npy")
+    n = len(positions)
+    
+    # Calculate minimum pairwise distance
+    min_dist = float('inf')
+    for i in range(n):
+        for j in range(i+1, n):
+            dist = np.linalg.norm(positions[i] - positions[j])
+            min_dist = min(min_dist, dist)
+    
+    # Score = diameter of packed circles
+    # Higher is better (tighter packing)
+    score = min_dist
+    
+    return {
+        "combined_score": score,
+        "artifacts": {
+            "min_distance": min_dist,
+            "num_circles": n
+        }
+    }
+```
+
+### How Evolution Works
+
+1. **Iteration 1**: SkyDiscover runs the initial program and evaluates it
+2. **Iteration 2-100**: The LLM proposes improvements to the `generate_circle_packing` function
+3. **Selection**: AdaEvolve uses adaptive strategies to select which programs to evolve
+4. **Evaluation**: Each new program is scored by the evaluator
+5. **Best tracking**: The highest-scoring solution is saved
+
+## Try Your Own Problem
+
+### Option 1: Start from Scratch
+
+Let the LLM generate a solution from just an evaluator:
+
+```bash
+uv run skydiscover-run evaluator.py \
+  --search evox \
+  --model gpt-5 \
+  --iterations 50
+```
+
+### Option 2: Python API
+
+Use SkyDiscover programmatically:
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    evaluator="evaluator.py",
+    initial_program="initial_program.py",
+    search="adaevolve",
+    model="gpt-5",
+    iterations=100
+)
+
+print(f"Best score: {result.best_score}")
+print(f"Best solution:\n{result.best_solution}")
+```
+
+### Option 3: Custom Evaluator
+
+Create a custom optimization problem:
+
+```python my_evaluator.py
+def evaluate(program_path):
+    # Run your custom test suite
+    score = run_tests(program_path)
+    
+    return {
+        "combined_score": score,
+        "artifacts": {
+            "tests_passed": 42,
+            "performance_ms": 123
+        }
+    }
+```
+
+Then run:
+
+```bash
+uv run skydiscover-run my_evaluator.py \
+  --search adaevolve \
+  --iterations 100
+```
+
+## Choose a Search Algorithm
+
+Different algorithms work better for different problems:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="AdaEvolve" icon="brain" href="/algorithms/adaevolve">
+    **Best for:** Most problems
+    
+    Adaptive multi-island search with UCB selection and paradigm breakthroughs
+  </Card>
+  
+  <Card title="EvoX" icon="sparkles" href="/algorithms/evox">
+    **Best for:** Complex landscapes
+    
+    Self-evolving algorithm that adapts its own strategy
+  </Card>
+  
+  <Card title="Beam Search" icon="magnifying-glass" href="/algorithms/beam-search">
+    **Best for:** Discrete decisions
+    
+    Maintains multiple candidate solutions in parallel
+  </Card>
+  
+  <Card title="Top-K" icon="arrow-up" href="/algorithms/topk">
+    **Best for:** Quick experiments
+    
+    Simple greedy selection of top performers
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Common Workflows
+
+<AccordionGroup>
+  <Accordion title="Resume from checkpoint">
+    If a run is interrupted, resume from the last checkpoint:
+    
+    ```bash
+    uv run skydiscover-run evaluator.py \
+      --checkpoint outputs/my_run_20260305_123456/checkpoint_50 \
+      --iterations 100
+    ```
+  </Accordion>
+  
+  <Accordion title="Use multiple models">
+    Distribute load across multiple LLMs:
+    
+    ```bash
+    uv run skydiscover-run evaluator.py \
+      --model "gpt-5,gemini/gemini-3-pro-preview" \
+      --iterations 100
+    ```
+    
+    Or configure in YAML:
+    
+    ```yaml
+    llm:
+      models:
+        - name: "gpt-5"
+          weight: 0.7
+        - name: "gemini/gemini-3-pro-preview"
+          weight: 0.3
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable live monitoring">
+    Add to your config or command line:
+    
+    ```yaml config.yaml
+    monitor:
+      enabled: true
+      host: "0.0.0.0"
+      port: 8080
+    ```
+    
+    Then visit `http://localhost:8080` to see:
+    - Real-time scatter plot of all programs
+    - Code diffs and metrics
+    - Progress charts
+    - AI-generated summaries
+  </Accordion>
+  
+  <Accordion title="Optimize multiple files (agentic mode)">
+    Let the LLM read and modify multiple files:
+    
+    ```bash
+    uv run skydiscover-run initial_program.py evaluator.py \
+      --agentic \
+      --search adaevolve \
+      --iterations 100
+    ```
+    
+    The LLM can now read any file in your codebase and make coordinated changes across multiple files.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Learn how SkyDiscover works under the hood
+  </Card>
+  
+  <Card title="Writing Evaluators" icon="pencil" href="/guides/writing-evaluators">
+    Best practices for creating effective scoring functions
+  </Card>
+  
+  <Card title="Browse Examples" icon="folder-open" href="/examples/overview">
+    Explore math, systems, and algorithm optimization examples
+  </Card>
+  
+  <Card title="Configuration Guide" icon="sliders" href="/guides/configuration">
+    Advanced configuration options and YAML reference
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="API key not found">
+    Make sure you've exported your API key:
+    
+    ```bash
+    export OPENAI_API_KEY="sk-..."
+    ```
+    
+    Or pass it via config:
+    
+    ```yaml
+    llm:
+      models:
+        - name: "gpt-5"
+          api_key: "sk-..."
+    ```
+  </Accordion>
+  
+  <Accordion title="Module not found">
+    Install the required extras for your benchmark:
+    
+    ```bash
+    uv sync --extra math  # For math benchmarks
+    uv sync --extra adrs  # For systems benchmarks
+    ```
+  </Accordion>
+  
+  <Accordion title="Rate limit errors">
+    Reduce iteration frequency or use multiple models:
+    
+    ```yaml
+    llm:
+      models:
+        - name: "gpt-5-mini"
+          weight: 0.8
+        - name: "gpt-5"
+          weight: 0.2
+    ```
+  </Accordion>
+</AccordionGroup>

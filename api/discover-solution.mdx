@@ -1,0 +1,418 @@
+---
+title: discover_solution
+description: Convenience wrapper for evolving string solutions with callable evaluators
+---
+
+## Function Signature
+
+```python
+def discover_solution(
+    evaluator: Callable[[str], Dict[str, Any]],
+    initial_solution: Optional[str] = None,
+    iterations: int = 100,
+    search: Optional[str] = None,
+    model: Optional[str] = None,
+    **kwargs: Any,
+) -> DiscoveryResult
+```
+
+## Description
+
+A convenience wrapper around `run_discovery` designed for the common case where:
+- The initial solution is a plain string (not a file path)
+- The evaluator is a Python callable function (not a file path)
+
+This function provides a simpler interface for programmatic use cases where you want to evolve a string-based solution using an in-memory evaluator function.
+
+## Parameters
+
+<ParamField path="evaluator" type="Callable[[str], Dict[str, Any]]" required>
+  A callable function that evaluates a program and returns a metrics dictionary.
+  
+  **Function signature**: `(solution: str) -> Dict[str, Any]`
+  
+  The function receives the program as a string and must return a dictionary containing evaluation metrics. The score is extracted using the `combined_score` key or by aggregating other numeric metrics.
+</ParamField>
+
+<ParamField path="initial_solution" type="Optional[str]">
+  Starting solution as a plain string. If `None`, the LLM generates a solution from scratch.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="iterations" type="int">
+  Maximum number of iterations to run.
+  
+  Default: `100`
+</ParamField>
+
+<ParamField path="search" type="Optional[str]">
+  Search algorithm name.
+  
+  Options:
+  - `"topk"` - Top-K sampling
+  - `"adaevolve"` - Adaptive Evolution
+  - `"evox"` - EvoX backend
+  - `"openevolve_native"` - OpenEvolve native
+  
+  Default: `None` (uses config file)
+</ParamField>
+
+<ParamField path="model" type="Optional[str]">
+  Model name(s), comma-separated.
+  
+  Examples:
+  - `"gpt-5"`
+  - `"gpt-5,gemini/gemini-3-pro"`
+  
+  Default: `None` (uses config file)
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Additional keyword arguments passed to `run_discovery`.
+  
+  Common options:
+  - `config`: Configuration file path or Config object
+  - `output_dir`: Directory for results
+  - `system_prompt`: Domain-specific context for the LLM
+  - `agentic`: Enable agentic mode
+  - `api_base`: Custom API endpoint
+  - `cleanup`: Remove temporary files after completion
+</ParamField>
+
+## Returns
+
+<ResponseField name="DiscoveryResult" type="DiscoveryResult">
+  Result object containing:
+  
+  <Expandable title="DiscoveryResult fields">
+    <ResponseField name="best_program" type="Optional[Program]">
+      The best program found during discovery
+    </ResponseField>
+    
+    <ResponseField name="best_score" type="float">
+      Score of the best program
+    </ResponseField>
+    
+    <ResponseField name="best_solution" type="str">
+      Source code of the best solution
+    </ResponseField>
+    
+    <ResponseField name="metrics" type="Dict[str, Any]">
+      Detailed metrics from the evaluator
+    </ResponseField>
+    
+    <ResponseField name="output_dir" type="Optional[str]">
+      Directory containing results (None if cleanup=True)
+    </ResponseField>
+    
+    <ResponseField name="initial_score" type="Optional[float]">
+      Score of the initial program (if provided)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic Usage
+
+```python
+from skydiscover import discover_solution
+
+def my_evaluator(solution: str) -> dict:
+    """Evaluate solution quality."""
+    # Write solution to temporary file and test it
+    import tempfile
+    import subprocess
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(solution)
+        temp_path = f.name
+    
+    try:
+        # Run tests
+        result = subprocess.run(
+            ['python', '-m', 'pytest', temp_path, '--json-report'],
+            capture_output=True,
+            timeout=30
+        )
+        
+        # Calculate score
+        tests_passed = result.returncode == 0
+        return {
+            'combined_score': 1.0 if tests_passed else 0.0,
+            'tests_passed': tests_passed,
+        }
+    finally:
+        import os
+        os.unlink(temp_path)
+
+initial_code = '''
+def fibonacci(n: int) -> int:
+    if n <= 1:
+        return n
+    return fibonacci(n-1) + fibonacci(n-2)
+'''
+
+result = discover_solution(
+    evaluator=my_evaluator,
+    initial_solution=initial_code,
+    model="gpt-5",
+    iterations=50,
+)
+
+print(f"Improved score: {result.best_score}")
+print(f"Initial score: {result.initial_score}")
+```
+
+### Starting from Scratch
+
+```python
+from skydiscover import discover_solution
+
+def evaluate_sorting(solution: str) -> dict:
+    """Evaluate a sorting algorithm."""
+    import random
+    import timeit
+    
+    # Create a namespace and execute the solution
+    namespace = {}
+    exec(solution, namespace)
+    
+    if 'sort' not in namespace:
+        return {'combined_score': 0.0, 'error': 'No sort function found'}
+    
+    sort_func = namespace['sort']
+    
+    # Test correctness
+    test_cases = [
+        [3, 1, 4, 1, 5, 9, 2, 6],
+        [1],
+        [],
+        list(range(100, 0, -1)),
+    ]
+    
+    for test in test_cases:
+        result = sort_func(test.copy())
+        expected = sorted(test)
+        if result != expected:
+            return {'combined_score': 0.0, 'error': 'Incorrect result'}
+    
+    # Measure performance
+    large_array = [random.randint(0, 1000) for _ in range(1000)]
+    time_taken = timeit.timeit(
+        lambda: sort_func(large_array.copy()),
+        number=100
+    )
+    
+    # Score: lower time is better
+    score = 1.0 / (1.0 + time_taken)
+    
+    return {
+        'combined_score': score,
+        'time_taken': time_taken,
+        'correctness': 1.0,
+    }
+
+result = discover_solution(
+    evaluator=evaluate_sorting,
+    initial_solution=None,  # Generate from scratch
+    model="gpt-5",
+    iterations=100,
+    system_prompt="Create an efficient sorting algorithm optimized for small arrays (< 1000 elements)",
+)
+
+print(f"Best sorting algorithm:\n{result.best_solution}")
+print(f"Performance score: {result.best_score}")
+```
+
+### Multi-Objective Optimization
+
+```python
+from skydiscover import discover_solution
+import ast
+
+def evaluate_code_quality(solution: str) -> dict:
+    """Evaluate code on multiple dimensions."""
+    metrics = {}
+    
+    # Parse the code
+    try:
+        tree = ast.parse(solution)
+    except SyntaxError:
+        return {'combined_score': 0.0, 'error': 'Syntax error'}
+    
+    # Count lines (excluding empty lines and comments)
+    lines = [l.strip() for l in solution.split('\n') if l.strip() and not l.strip().startswith('#')]
+    metrics['brevity'] = 1.0 / (1.0 + len(lines) / 10.0)  # Prefer shorter code
+    
+    # Count complexity (number of nodes)
+    num_nodes = sum(1 for _ in ast.walk(tree))
+    metrics['simplicity'] = 1.0 / (1.0 + num_nodes / 20.0)  # Prefer simpler code
+    
+    # Check for docstrings
+    has_docstrings = any(
+        isinstance(node, (ast.FunctionDef, ast.ClassDef)) and
+        ast.get_docstring(node)
+        for node in ast.walk(tree)
+    )
+    metrics['documentation'] = 1.0 if has_docstrings else 0.5
+    
+    # Run functionality tests
+    namespace = {}
+    exec(solution, namespace)
+    
+    if 'process' not in namespace:
+        return {'combined_score': 0.0, 'error': 'No process function'}
+    
+    try:
+        result = namespace['process']('test input')
+        metrics['correctness'] = 1.0 if result else 0.5
+    except Exception as e:
+        metrics['correctness'] = 0.0
+        metrics['error'] = str(e)
+    
+    # Combined score (weighted average)
+    metrics['combined_score'] = (
+        0.4 * metrics['correctness'] +
+        0.3 * metrics['brevity'] +
+        0.2 * metrics['simplicity'] +
+        0.1 * metrics['documentation']
+    )
+    
+    return metrics
+
+initial_code = '''
+def process(input_text: str) -> str:
+    """Process the input text."""
+    # Basic implementation
+    result = input_text.upper()
+    result = result.replace(' ', '_')
+    return result
+'''
+
+result = discover_solution(
+    evaluator=evaluate_code_quality,
+    initial_solution=initial_code,
+    model="gpt-5",
+    iterations=75,
+)
+
+print(f"Improved solution:\n{result.best_solution}")
+print(f"\nMetrics: {result.metrics}")
+```
+
+### With Custom Configuration
+
+```python
+from skydiscover import discover_solution
+
+def simple_evaluator(solution: str) -> dict:
+    """Simple length-based evaluator."""
+    lines = solution.strip().split('\n')
+    return {'combined_score': len(lines) / 100.0}
+
+result = discover_solution(
+    evaluator=simple_evaluator,
+    initial_solution="def hello(): pass",
+    model="gpt-5",
+    iterations=50,
+    output_dir="./my_results",
+    cleanup=False,
+    system_prompt="Create comprehensive documentation",
+)
+
+print(f"Results saved to: {result.output_dir}")
+```
+
+### Different Search Algorithms
+
+```python
+from skydiscover import discover_solution
+
+def my_evaluator(solution: str) -> dict:
+    # Evaluation logic
+    return {'combined_score': len(solution) / 1000.0}
+
+# Try different search algorithms
+for search_type in ['topk', 'adaevolve']:
+    result = discover_solution(
+        evaluator=my_evaluator,
+        initial_solution="# Starting code",
+        model="gpt-5",
+        search=search_type,
+        iterations=50,
+    )
+    print(f"{search_type}: {result.best_score:.4f}")
+```
+
+## Error Handling
+
+### Invalid Evaluator Return Type
+
+```python
+from skydiscover import discover_solution
+
+def bad_evaluator(solution: str) -> float:
+    """This evaluator returns a float instead of dict."""
+    return 0.5  # Wrong! Should return a dict
+
+try:
+    result = discover_solution(
+        evaluator=bad_evaluator,
+        model="gpt-5",
+    )
+except (TypeError, KeyError) as e:
+    print(f"Error: Evaluator must return a dictionary with metrics")
+```
+
+### Evaluator Timeout
+
+```python
+from skydiscover import discover_solution
+import time
+
+def slow_evaluator(solution: str) -> dict:
+    """Evaluator with timeout protection."""
+    import signal
+    
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Evaluation timeout")
+    
+    # Set 10 second timeout
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(10)
+    
+    try:
+        # Your evaluation logic here
+        namespace = {}
+        exec(solution, namespace)
+        # ... more evaluation
+        return {'combined_score': 0.5}
+    except TimeoutError:
+        return {'combined_score': 0.0, 'error': 'timeout'}
+    finally:
+        signal.alarm(0)  # Cancel alarm
+
+result = discover_solution(
+    evaluator=slow_evaluator,
+    model="gpt-5",
+    iterations=50,
+)
+```
+
+## Notes
+
+- This function is a thin wrapper around `run_discovery` for convenience
+- The evaluator function receives the solution as a string (not a file path)
+- The evaluator must return a dictionary; the score is derived from:
+  - `combined_score` key (if present), or
+  - Aggregation of other numeric values
+- Use `run_discovery` directly if you need more control or file-based workflows
+- The evaluator function is automatically converted to a file-based evaluator internally
+
+## See Also
+
+- [run_discovery](/api/run-discovery) - Main discovery function with more options
+- [DiscoveryResult](/api/discovery-result) - Result object details
+- [Runner](/api/runner) - Lower-level discovery runner class

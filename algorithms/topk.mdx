@@ -1,0 +1,235 @@
+---
+title: 'Top-K'
+description: 'Simple and effective algorithm that selects the top-K solutions for refinement'
+icon: 'ranking-star'
+---
+
+## Overview
+
+Top-K is a straightforward search algorithm that always selects the best program as the parent and uses the next best programs as context. It's the simplest effective baseline in SkyDiscover.
+
+<CardGroup cols={2}>
+  <Card title="Greedy Selection" icon="bullseye">
+    Always picks the highest-scoring program to evolve
+  </Card>
+  <Card title="Elite Context" icon="trophy">
+    Provides top programs as examples in the prompt
+  </Card>
+  <Card title="No Stagnation" icon="infinity">
+    Continues refining even if improvement is slow
+  </Card>
+  <Card title="Minimal Overhead" icon="gauge-simple">
+    Fast and simple with no complex bookkeeping
+  </Card>
+</CardGroup>
+
+## How It Works
+
+### Sampling Strategy
+
+On each iteration, Top-K:
+
+1. **Parent Selection**: Choose the program with the highest `combined_score`
+2. **Context Selection**: Select the next K programs (ranks 2 to K+1) as context
+3. **Prompt Generation**: Include context programs as examples of good solutions
+4. **Evolution**: Generate a mutation of the best program
+
+<Note>
+  If only one program exists, it's used as both parent and context.
+</Note>
+
+### Pure Exploitation
+
+Top-K is a **pure exploitation** strategy:
+- No exploration of diverse solutions
+- No randomness in selection
+- Focuses entirely on refining the current best
+
+This can be very effective for problems where iterative refinement is the key to success.
+
+## Configuration
+
+### Basic Usage
+
+```bash
+skydiscover-run initial_program.py evaluator.py \
+  --search topk \
+  --iterations 50
+```
+
+### Python API
+
+```python
+from skydiscover import run_discovery
+
+result = run_discovery(
+    initial_program="initial.py",
+    evaluator="eval.py",
+    search="topk",
+    iterations=50,
+)
+
+print(f"Best score: {result.best_score}")
+```
+
+### Configuration File
+
+```yaml
+search:
+  type: topk
+  database:
+    # No special configuration needed for Top-K
+    # Standard database settings apply
+    db_path: "outputs/topk"
+  
+  # Number of context programs to include in prompts
+  num_context_programs: 4
+```
+
+## Configuration Options
+
+<ParamField path="num_context_programs" type="int" default="4">
+  Number of top programs (after the best) to include as context
+</ParamField>
+
+Top-K uses the standard database configuration options:
+
+<ParamField path="db_path" type="string">
+  Directory to save programs and checkpoints
+</ParamField>
+
+<ParamField path="log_prompts" type="bool" default="false">
+  Whether to save prompts and responses
+</ParamField>
+
+## When to Use Top-K
+
+<AccordionGroup>
+  <Accordion title="Best For" icon="check">
+    - Quick experiments and baselines
+    - Problems where greedy refinement works well
+    - Short discovery runs (< 50 iterations)
+    - When you want simple, predictable behavior
+    - As a starting point before trying more complex algorithms
+  </Accordion>
+  
+  <Accordion title="Avoid When" icon="xmark">
+    - Problems with many local optima requiring exploration
+    - Need for diverse solution approaches
+    - Risk of getting stuck in local optima
+  </Accordion>
+</AccordionGroup>
+
+## Comparison with Other Algorithms
+
+| Algorithm | Exploration | Exploitation | Complexity |
+|-----------|-------------|--------------|------------|
+| **Top-K** | None | High | Low |
+| [Best-of-N](/algorithms/best-of-n) | None | High | Low |
+| [Beam Search](/algorithms/beam-search) | Medium | Medium | Medium |
+| [AdaEvolve](/algorithms/adaevolve) | Adaptive | Adaptive | High |
+
+## Example
+
+### Simple Optimization
+
+```python
+# evaluator.py
+def evaluate(program_path):
+    # Run and score the program
+    result = run_program(program_path)
+    return {"combined_score": result.accuracy}
+
+# initial_program.py
+def solve(data):
+    # Simple baseline
+    return data
+```
+
+```bash
+# Run Top-K for 30 iterations
+skydiscover-run initial_program.py evaluator.py \
+  --search topk \
+  --iterations 30 \
+  --model gpt-5
+```
+
+### Output Structure
+
+```
+outputs/topk/
+├── programs/
+│   ├── program_abc123.json    # Best program
+│   ├── program_def456.json    # Second best
+│   └── ...
+├── metadata.json              # Best program ID, iteration count
+└── checkpoint_30/             # Checkpoint at iteration 30
+```
+
+## Tips for Best Results
+
+<AccordionGroup>
+  <Accordion title="Start Simple" icon="1">
+    Top-K is an excellent starting point. Run it first to establish a baseline before trying more complex algorithms.
+  </Accordion>
+  
+  <Accordion title="Monitor for Stagnation" icon="2">
+    If the score stops improving after several iterations, consider switching to an algorithm with exploration (like AdaEvolve or Beam Search).
+  </Accordion>
+  
+  <Accordion title="Use Good Context" icon="3">
+    Increase `num_context_programs` (e.g., to 8) to give the LLM more examples of successful solutions.
+  </Accordion>
+  
+  <Accordion title="Iterate Quickly" icon="4">
+    Top-K's simplicity makes it fast. Use it for rapid iteration during development.
+  </Accordion>
+</AccordionGroup>
+
+## Variants
+
+You can easily modify Top-K behavior:
+
+### Random Top-K
+
+Sample randomly from top-K instead of always using #1:
+
+```python
+from skydiscover.search.topk import TopKDatabase
+import random
+
+class RandomTopKDatabase(TopKDatabase):
+    def sample(self, num_context_programs=4, **kwargs):
+        top_programs = self.get_top_programs(num_context_programs + 1)
+        parent = random.choice(top_programs[:3])  # Pick from top 3
+        context = [p for p in top_programs if p.id != parent.id][:num_context_programs]
+        return parent, context
+```
+
+### Top-K with Temperature
+
+Weight selection by score:
+
+```python
+import numpy as np
+
+class TemperatureTopKDatabase(TopKDatabase):
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.temperature = 0.5
+    
+    def sample(self, num_context_programs=4, **kwargs):
+        top_programs = self.get_top_programs(10)
+        scores = [p.metrics.get('combined_score', 0) for p in top_programs]
+        probs = np.exp(np.array(scores) / self.temperature)
+        probs /= probs.sum()
+        parent = np.random.choice(top_programs, p=probs)
+        context = [p for p in top_programs if p.id != parent.id][:num_context_programs]
+        return parent, context
+```
+
+## Related Algorithms
+
+- [Best-of-N](/algorithms/best-of-n) - Similar greedy approach with N attempts per parent
+- [Beam Search](/algorithms/beam-search) - Maintains multiple candidates instead of just one
+- [AdaEvolve](/algorithms/adaevolve) - Adaptive version with exploration

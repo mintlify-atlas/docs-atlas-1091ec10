@@ -1,0 +1,488 @@
+---
+title: Custom Context Builders
+description: Customize how program state is turned into LLM prompts
+---
+
+The context builder turns program state into LLM prompts. It's called once per iteration and returns `{"system": ..., "user": ...}`.
+
+**For most tasks, you don't need to touch this.** Just set the system prompt in `config.yaml`:
+
+```yaml config.yaml
+prompt:
+  system_message: |-
+    You are an expert at optimizing load balancing algorithms.
+```
+
+**Only write a custom builder** if your algorithm has search-state data (tree path, island ID, rejection history) that the LLM should see.
+
+---
+
+## Architecture
+
+<Steps>
+  <Step title="Controller calls context_builder.build_prompt()">
+    Once per iteration, before calling the LLM
+  </Step>
+  <Step title="Context builder renders templates">
+    Fills in placeholders with parent program, context programs, and metrics
+  </Step>
+  <Step title="Returns {system, user} dict">
+    Sent directly to the LLM
+  </Step>
+</Steps>
+
+---
+
+## Directory Structure
+
+```
+context_builder/
+  base.py                   # ContextBuilder ABC (one method: build_prompt)
+  utils.py                  # TemplateManager (loads .txt templates)
+  human_feedback.py         # File-based human feedback injection
+
+  default/
+    builder.py              # DefaultContextBuilder
+    templates/              # .txt prompt templates
+      system_message.txt
+      diff_user_message.txt
+      full_rewrite_user_message.txt
+      image_user_message.txt
+      evaluator_system_message.txt
+
+  evox/
+    builder.py              # EvoxContextBuilder (adds LLM-generated summaries)
+    templates/              # Overrides default templates with same filename
+      search_evolution_user_message.txt
+```
+
+Each builder owns its own `TemplateManager`. Later directories override earlier ones on filename conflicts.
+
+---
+
+## Default Templates
+
+| File | Role | When Used |
+|------|------|----------|
+| `system_message.txt` | system | Default system prompt (overridden by config) |
+| `diff_user_message.txt` | user | Diff-based generation (default mode) |
+| `full_rewrite_user_message.txt` | user | Full rewrite mode |
+| `full_rewrite_prompt_opt_user_message.txt` | user | Prompt optimization tasks |
+| `image_user_message.txt` | user | Image generation mode |
+| `evaluator_system_message.txt` | system | LLM judge (only with `llm_as_judge`) |
+| `evaluator_user_message.txt` | user | LLM judge user message |
+
+---
+
+## When to Write a Custom Builder
+
+You need a custom builder if:
+
+<AccordionGroup>
+  <Accordion title="Your algorithm has search-specific state">
+    Examples:
+    - **Multi-island search**: "You are on island 3 (exploration mode)"
+    - **Tree search**: "Current path: root → node_5 → node_12"
+    - **Acceptance gating**: "Last 5 attempts were rejected because..."
+  </Accordion>
+
+  <Accordion title="You want to add dynamic guidance">
+    Examples:
+    - **Stagnation response**: "No improvement in 20 iterations. Try a radical change."
+    - **Evaluator feedback**: "Previous solution failed validation: timeout"
+    - **Paradigm hints**: "Consider using dynamic programming instead of greedy."
+  </Accordion>
+
+  <Accordion title="You need custom context program formatting">
+    Examples:
+    - **Ranked context**: "Top 3 programs: #1 (score=0.95), #2 (score=0.92), ..."
+    - **Sibling context**: "3 siblings from the same parent, all failed"
+    - **Diverse context**: "Programs from 3 different search islands"
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Writing a Custom Builder
+
+The most common pattern is **extending `DefaultContextBuilder`** and injecting extra guidance via the `{search_guidance}` placeholder.
+
+The default templates already include this slot—an empty string makes it disappear cleanly.
+
+### Basic Pattern
+
+```python
+from pathlib import Path
+from skydiscover.context_builder.default import DefaultContextBuilder
+from skydiscover.context_builder.utils import TemplateManager
+
+class MyContextBuilder(DefaultContextBuilder):
+
+    def __init__(self, config):
+        super().__init__(config)
+        # Load your templates on top of the defaults
+        default_templates = str(Path(__file__).parent.parent / "default" / "templates")
+        my_templates = str(Path(__file__).parent / "templates")
+        self.template_manager = TemplateManager(default_templates, my_templates)
+
+    def build_prompt(self, current_program, context=None, **kwargs):
+        context = context or {}
+
+        # Format search-specific guidance
+        guidance = self._format_guidance(context.get("my_key"))
+
+        # Call parent with extra guidance
+        return super().build_prompt(
+            current_program,
+            context,
+            search_guidance=guidance,
+            **kwargs
+        )
+
+    def _format_guidance(self, data):
+        if not data:
+            return ""
+        return f"## SEARCH CONTEXT\n{data}"
+```
+
+### Complete Example: Island-Based Search
+
+Here's a builder that tells the LLM which island it's on:
+
+```python my_algo/builder.py
+from pathlib import Path
+from skydiscover.context_builder.default import DefaultContextBuilder
+from skydiscover.context_builder.utils import TemplateManager
+
+class IslandContextBuilder(DefaultContextBuilder):
+    """Context builder for multi-island search."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        default_templates = str(Path(__file__).parent.parent / "default" / "templates")
+        my_templates = str(Path(__file__).parent / "templates")
+        self.template_manager = TemplateManager(default_templates, my_templates)
+
+    def build_prompt(self, current_program, context=None, **kwargs):
+        context = context or {}
+
+        # Extract island info from context
+        island_id = context.get("island_id")
+        island_mode = context.get("island_mode")  # "exploit" or "explore"
+        migration_count = context.get("migration_count", 0)
+
+        # Format guidance
+        guidance = self._format_island_guidance(
+            island_id, island_mode, migration_count
+        )
+
+        return super().build_prompt(
+            current_program,
+            context,
+            search_guidance=guidance,
+            **kwargs
+        )
+
+    def _format_island_guidance(self, island_id, mode, migration_count):
+        if island_id is None:
+            return ""
+
+        parts = [f"## ISLAND CONTEXT\n\nYou are on **island {island_id}**"]
+
+        if mode == "exploit":
+            parts.append(
+                "(exploitation mode: make small improvements to the current solution)"
+            )
+        elif mode == "explore":
+            parts.append(
+                "(exploration mode: try creative changes, even if risky)"
+            )
+
+        if migration_count > 0:
+            parts.append(
+                f"\n\nThis program was migrated from another island "
+                f"{migration_count} times."
+            )
+
+        return " ".join(parts)
+```
+
+### Template with Placeholder
+
+Create `my_algo/templates/diff_user_message.txt` (overrides default):
+
+```txt diff_user_message.txt
+You are optimizing a program.
+
+{search_guidance}
+
+## CURRENT PROGRAM
+
+```{language}
+{program}
+```
+
+**Metrics**: {metrics}
+
+## CONTEXT PROGRAMS
+
+{context_programs}
+
+## TASK
+
+Generate SEARCH/REPLACE blocks to improve the program.
+```
+
+The `{search_guidance}` placeholder is filled by your `build_prompt()` method.
+
+---
+
+## Controller Integration
+
+Use your custom builder in the controller:
+
+```python my_algo/controller.py
+from skydiscover.search.default_discovery_controller import (
+    DiscoveryController,
+    DiscoveryControllerInput
+)
+from my_algo.builder import IslandContextBuilder
+
+class MyController(DiscoveryController):
+
+    def __init__(self, controller_input: DiscoveryControllerInput):
+        super().__init__(controller_input)
+        # Replace default builder
+        self.context_builder = IslandContextBuilder(self.config)
+
+    async def run_discovery(self, start_iteration, max_iterations, **kwargs):
+        for iteration in range(start_iteration, start_iteration + max_iterations):
+            if self.shutdown_event.is_set():
+                break
+
+            # Set island context before iteration
+            island_id = self._get_current_island()
+            island_mode = self._get_island_mode(island_id)
+
+            # Store in controller's prompt context
+            self._prompt_context = {
+                "island_id": island_id,
+                "island_mode": island_mode,
+                "migration_count": self._get_migration_count(island_id),
+            }
+
+            result = await self._run_iteration(iteration)
+
+            if result.error:
+                continue
+
+            self._process_iteration_result(result, iteration, kwargs.get("checkpoint_callback"))
+
+        return self.database.get_best_program()
+```
+
+The `_prompt_context` dict is automatically passed to `build_prompt()` as the `context` parameter.
+
+---
+
+## Registration via Config
+
+To make a builder available via config (instead of hardcoding in controller), add it to `_init_context_builder()` in `search/default_discovery_controller.py`:
+
+```python default_discovery_controller.py
+def _init_context_builder(self):
+    """Initialize the appropriate context builder based on config."""
+    template = getattr(self.config.context_builder, "template", "default")
+
+    if template == "evox":
+        self.context_builder = EvoxContextBuilder(self.config)
+        self.context_builder.set_templates(user_template="search_evolution_user_message")
+    elif template == "my_builder":  # <-- Add this
+        from my_algo.builder import IslandContextBuilder
+        self.context_builder = IslandContextBuilder(self.config)
+    else:
+        self.context_builder = DefaultContextBuilder(self.config)
+```
+
+Then activate with:
+
+```yaml config.yaml
+prompt:
+  template: my_builder
+  system_message: |-
+    You are optimizing programs using multi-island search.
+```
+
+---
+
+## Advanced: Dynamic Guidance
+
+For guidance that changes based on search progress:
+
+```python
+class AdaptiveContextBuilder(DefaultContextBuilder):
+
+    def build_prompt(self, current_program, context=None, **kwargs):
+        context = context or {}
+
+        # Get database stats
+        db_stats = context.get("db_stats", {})
+        recent_stats = db_stats.get("recent_solution_stats", {})
+        stagnation = recent_stats.get("iterations_without_improvement", 0)
+
+        # Adapt guidance based on stagnation
+        if stagnation > 50:
+            guidance = (
+                "## STAGNATION DETECTED\n\n"
+                "No improvement in 50 iterations. Try a radical change:\n"
+                "- Use a completely different algorithm\n"
+                "- Change data structures\n"
+                "- Rethink the approach from scratch"
+            )
+        elif stagnation > 20:
+            guidance = (
+                "## SLOW PROGRESS\n\n"
+                "Consider making larger changes to break out of local optima."
+            )
+        else:
+            guidance = ""
+
+        return super().build_prompt(
+            current_program,
+            context,
+            search_guidance=guidance,
+            **kwargs
+        )
+```
+
+---
+
+## Template Variables
+
+Available placeholders in templates:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `{program}` | str | Current program source code |
+| `{language}` | str | Programming language ("python", "text", "image") |
+| `{metrics}` | str | Formatted metrics from parent program |
+| `{context_programs}` | str | Formatted list of context programs |
+| `{search_guidance}` | str | Custom guidance from your builder |
+| `{errors}` | str | Failed attempts (if retry mode) |
+| `{db_stats}` | str | Database statistics (score distribution, etc.) |
+
+---
+
+## Real-World Examples
+
+### AdaEvolve Builder
+
+Adds evaluator feedback, paradigm guidance, and sibling context:
+
+```python adaevolve/builder.py
+class AdaEvolveContextBuilder(DefaultContextBuilder):
+
+    def build_prompt(self, current_program, context=None, **kwargs):
+        context = context or {}
+
+        guidance_parts = []
+
+        # Add evaluator feedback
+        if "evaluator_feedback" in context:
+            feedback = context["evaluator_feedback"]
+            guidance_parts.append(f"## EVALUATOR FEEDBACK\n{feedback}")
+
+        # Add paradigm suggestion
+        if "paradigm" in context:
+            paradigm = context["paradigm"]
+            guidance_parts.append(f"## SUGGESTED PARADIGM\n{paradigm}")
+
+        # Add sibling context
+        if "siblings" in context:
+            siblings = context["siblings"]
+            guidance_parts.append(self._format_siblings(siblings))
+
+        guidance = "\n\n".join(guidance_parts)
+
+        return super().build_prompt(
+            current_program,
+            context,
+            search_guidance=guidance,
+            **kwargs
+        )
+
+    def _format_siblings(self, siblings):
+        if not siblings:
+            return ""
+        lines = ["## SIBLING MUTATIONS", "", "Other mutations from the same parent:"]
+        for i, sib in enumerate(siblings, 1):
+            score = sib.get("score", 0)
+            status = "✓ accepted" if score > 0.5 else "✗ rejected"
+            lines.append(f"{i}. Score: {score:.4f} ({status})")
+        return "\n".join(lines)
+```
+
+### EvoX Builder
+
+Adds LLM-generated search strategy summaries:
+
+```python evox/builder.py
+class EvoxContextBuilder(DefaultContextBuilder):
+
+    def build_prompt(self, current_program, context=None, **kwargs):
+        context = context or {}
+
+        # Extract search strategy description (generated by meta-controller)
+        strategy_desc = context.get("strategy_description", "")
+
+        if strategy_desc:
+            guidance = f"## SEARCH STRATEGY\n{strategy_desc}"
+        else:
+            guidance = ""
+
+        return super().build_prompt(
+            current_program,
+            context,
+            search_guidance=guidance,
+            **kwargs
+        )
+```
+
+---
+
+## TemplateManager API
+
+The `TemplateManager` loads and renders `.txt` templates:
+
+```python
+from skydiscover.context_builder.utils import TemplateManager
+
+# Initialize with template directories (later overrides earlier)
+tm = TemplateManager(
+    "context_builder/default/templates",
+    "my_algo/templates"
+)
+
+# Load a template
+template = tm.load_template("diff_user_message")
+
+# Render with variables
+rendered = tm.render(template, {
+    "program": "def solve(): pass",
+    "language": "python",
+    "metrics": "score=0.85",
+})
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Custom Algorithms" icon="gears" href="/extending/custom-algorithms">
+    Implement your own search strategies
+  </Card>
+  <Card title="Custom Benchmarks" icon="flask" href="/extending/custom-benchmarks">
+    Add your own optimization tasks
+  </Card>
+</CardGroup>

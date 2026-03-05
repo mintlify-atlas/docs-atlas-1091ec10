@@ -1,0 +1,415 @@
+---
+title: Runner
+description: Top-level class for managing discovery runs with checkpointing and monitoring
+---
+
+## Class Definition
+
+```python
+class Runner:
+    """Top-level entry point for a discovery run.
+    
+    Loads config, creates the database and discovery controller, runs the
+    search loop, and saves checkpoints + best program.
+    """
+    
+    def __init__(
+        self,
+        evaluation_file: str,
+        initial_program_path: Optional[str] = None,
+        config_path: Optional[str] = None,
+        config: Optional[Config] = None,
+        output_dir: Optional[str] = None,
+    )
+```
+
+## Description
+
+The `Runner` class is the lower-level interface for executing discovery runs. It provides more control than the high-level `run_discovery` function and is suitable for:
+- Custom discovery workflows
+- Integration with existing systems
+- Direct access to database and controller objects
+- Custom monitoring and checkpointing logic
+
+## Constructor Parameters
+
+<ParamField path="evaluation_file" type="str" required>
+  Path to the evaluator script. The script must define an `evaluate()` function that accepts a program path and returns a metrics dictionary.
+</ParamField>
+
+<ParamField path="initial_program_path" type="Optional[str]">
+  Path to the starting solution file. If `None`, the LLM generates solutions from scratch.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="config_path" type="Optional[str]">
+  Path to a YAML configuration file. Ignored if `config` parameter is provided.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="config" type="Optional[Config]">
+  Pre-built `Config` object. Takes priority over `config_path`.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="output_dir" type="Optional[str]">
+  Directory where logs, checkpoints, and best program are written. Auto-generated from search type and problem name if omitted.
+  
+  Default: `None` (auto-generated)
+</ParamField>
+
+## Properties
+
+<ResponseField name="initial_score" type="Optional[float]">
+  Score of the seed program, or `None` if unavailable.
+  
+  This property searches the database for the initial program and returns its score.
+</ResponseField>
+
+## Methods
+
+### run
+
+```python
+async def run(
+    self,
+    iterations: Optional[int] = None,
+    checkpoint_path: Optional[str] = None,
+) -> Optional[Program]
+```
+
+Entrypoint for the discovery process.
+
+<ParamField path="iterations" type="Optional[int]">
+  Maximum iterations to run. Uses `config.max_iterations` if `None`.
+  
+  Default: `None`
+</ParamField>
+
+<ParamField path="checkpoint_path" type="Optional[str]">
+  Resume from this checkpoint directory if provided.
+  
+  Default: `None`
+</ParamField>
+
+**Returns**: `Optional[Program]` - Best program found, or `None` if no valid programs were produced.
+
+## Attributes
+
+<ResponseField name="config" type="Config">
+  Configuration object for the run
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Search algorithm name from config
+</ResponseField>
+
+<ResponseField name="output_dir" type="str">
+  Directory for results and logs
+</ResponseField>
+
+<ResponseField name="initial_program_path" type="Optional[str]">
+  Path to the initial program file
+</ResponseField>
+
+<ResponseField name="initial_program_solution" type="Optional[str]">
+  Source code of the initial program
+</ResponseField>
+
+<ResponseField name="file_extension" type="str">
+  File extension for generated programs (e.g., ".py")
+</ResponseField>
+
+<ResponseField name="database" type="ProgramDatabase">
+  Database instance for storing programs
+</ResponseField>
+
+<ResponseField name="evaluation_file" type="str">
+  Path to the evaluator script
+</ResponseField>
+
+<ResponseField name="discovery_controller" type="Optional[DiscoveryController]">
+  Controller instance managing the discovery process
+</ResponseField>
+
+## Examples
+
+### Basic Usage
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+from skydiscover.config import load_config
+
+async def main():
+    # Create runner
+    runner = Runner(
+        evaluation_file="examples/my_problem/eval.py",
+        initial_program_path="examples/my_problem/init.py",
+        config_path="config.yaml",
+        output_dir="./results",
+    )
+    
+    # Run discovery
+    best_program = await runner.run(iterations=50)
+    
+    if best_program:
+        print(f"Best score: {best_program.metrics}")
+        print(f"Solution:\n{best_program.solution}")
+    else:
+        print("No valid programs found")
+
+asyncio.run(main())
+```
+
+### With Custom Config
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+from skydiscover.config import Config
+
+async def main():
+    # Build custom config
+    config = Config()
+    config.max_iterations = 100
+    config.llm.models = ["gpt-5", "claude-4-sonnet"]
+    config.llm.temperature = 0.8
+    config.search.type = "topk"
+    config.search.database.capacity = 50
+    
+    # Create runner with custom config
+    runner = Runner(
+        evaluation_file="eval.py",
+        initial_program_path="init.py",
+        config=config,
+    )
+    
+    print(f"Output directory: {runner.output_dir}")
+    print(f"Search algorithm: {runner.name}")
+    
+    # Run discovery
+    best_program = await runner.run()
+    
+    # Access initial score
+    if runner.initial_score is not None:
+        improvement = best_program.metrics['combined_score'] - runner.initial_score
+        print(f"Improvement: {improvement:.4f}")
+
+asyncio.run(main())
+```
+
+### Resuming from Checkpoint
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+
+async def main():
+    runner = Runner(
+        evaluation_file="eval.py",
+        initial_program_path="init.py",
+        config_path="config.yaml",
+        output_dir="./results",
+    )
+    
+    # Resume from a previous checkpoint
+    checkpoint_dir = "./results/checkpoints/checkpoint_25"
+    
+    best_program = await runner.run(
+        iterations=100,
+        checkpoint_path=checkpoint_dir,
+    )
+    
+    print(f"Resumed from iteration {runner.database.last_iteration}")
+    print(f"Total programs: {len(runner.database.programs)}")
+
+asyncio.run(main())
+```
+
+### Accessing Database During Run
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+from skydiscover.utils.metrics import get_score
+
+async def main():
+    runner = Runner(
+        evaluation_file="eval.py",
+        initial_program_path="init.py",
+        config_path="config.yaml",
+    )
+    
+    # Run discovery
+    best_program = await runner.run(iterations=50)
+    
+    # Access database statistics
+    stats = runner.database.get_statistics()
+    print(f"Population size: {stats['population_size']}")
+    print(f"Best score: {stats['solution_score_summary']['best']}")
+    print(f"Median score: {stats['solution_score_summary']['q50']}")
+    
+    # Get top programs
+    top_programs = runner.database.get_top_programs(n=5)
+    for i, prog in enumerate(top_programs, 1):
+        score = get_score(prog.metrics)
+        print(f"{i}. Score: {score:.4f}, Iteration: {prog.iteration_found}")
+
+asyncio.run(main())
+```
+
+### Starting from Scratch
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+from skydiscover.config import Config
+
+async def main():
+    config = Config()
+    config.llm.models = ["gpt-5"]
+    config.llm.system_prompt = "Create a binary search implementation optimized for performance"
+    config.max_iterations = 100
+    
+    runner = Runner(
+        evaluation_file="examples/binary_search/eval.py",
+        initial_program_path=None,  # No initial program
+        config=config,
+        output_dir="./scratch_results",
+    )
+    
+    print("Generating solutions from scratch...")
+    best_program = await runner.run()
+    
+    print(f"Generated solution:\n{best_program.solution}")
+
+asyncio.run(main())
+```
+
+### Custom File Extension
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+
+async def main():
+    # Runner automatically detects file extension from initial program
+    runner = Runner(
+        evaluation_file="eval.py",
+        initial_program_path="solution.cpp",  # C++ file
+        config_path="config.yaml",
+    )
+    
+    print(f"Using file extension: {runner.file_extension}")
+    # Output: Using file extension: .cpp
+    
+    best_program = await runner.run(iterations=50)
+    
+    # Best program will be saved as best_program.cpp
+
+asyncio.run(main())
+```
+
+### Monitoring Progress
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+from skydiscover.config import Config
+
+async def main():
+    config = Config()
+    config.llm.models = ["gpt-5"]
+    config.monitor.enabled = True
+    config.monitor.port = 8080
+    
+    runner = Runner(
+        evaluation_file="eval.py",
+        initial_program_path="init.py",
+        config=config,
+    )
+    
+    print("Starting discovery with live monitor...")
+    # Monitor will be available at http://localhost:8080
+    
+    best_program = await runner.run(iterations=100)
+    
+    print("Discovery complete")
+
+asyncio.run(main())
+```
+
+### Error Handling
+
+```python
+import asyncio
+from skydiscover.runner import Runner
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+async def main():
+    try:
+        runner = Runner(
+            evaluation_file="eval.py",
+            initial_program_path="init.py",
+            config_path="config.yaml",
+        )
+        
+        best_program = await runner.run(iterations=50)
+        
+        if best_program is None:
+            print("Warning: No valid programs found")
+        else:
+            print(f"Success! Best score: {best_program.metrics['combined_score']}")
+            
+    except FileNotFoundError as e:
+        print(f"Error: File not found - {e}")
+    except ValueError as e:
+        print(f"Error: Invalid configuration - {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+
+asyncio.run(main())
+```
+
+## Output Directory Structure
+
+After running, the output directory contains:
+
+```
+output_dir/
+├── best/
+│   ├── best_program.py          # Best solution found
+│   └── best_program_info.json   # Metadata about best program
+├── checkpoints/
+│   ├── checkpoint_10/
+│   │   ├── database.json        # Database state at iteration 10
+│   │   ├── best_program.py      # Best program at that point
+│   │   └── best_program_info.json
+│   ├── checkpoint_20/
+│   └── ...
+└── logs/
+    └── skydiscover.log          # Execution logs
+```
+
+## Notes
+
+- The `Runner` class is async and must be used with `asyncio.run()` or within an async context
+- The runner automatically sets up signal handlers for graceful shutdown (SIGINT, SIGTERM)
+- Checkpoints are saved periodically during the run
+- If monitoring is enabled, a live web interface is available during execution
+- The runner detects the programming language from the initial program file extension
+- Use the `initial_score` property to compare improvement over the initial solution
+
+## See Also
+
+- [run_discovery](/api/run-discovery) - High-level synchronous interface
+- [Program](/api/discovery-result#program-class) - Program object structure
+- [Config](/config/overview) - Configuration options

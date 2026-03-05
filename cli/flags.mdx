@@ -1,0 +1,567 @@
+---
+title: CLI Flags Reference
+description: Complete reference for all SkyDiscover command-line flags and arguments
+---
+
+## Overview
+
+This page provides a comprehensive reference for all command-line flags and arguments available in SkyDiscover's CLI tools.
+
+## skydiscover-run Flags
+
+Main command for running evolutionary discovery.
+
+### Positional Arguments
+
+<ResponseField name="initial_program" type="string" optional>
+  **Position:** 1st argument
+  
+  **Description:** Path to the initial program file to seed the search. Optional - if omitted, search starts from scratch.
+  
+  **Example:**
+  ```bash
+  skydiscover-run baseline.py evaluator.py
+  ```
+</ResponseField>
+
+<ResponseField name="evaluation_file" type="string" required>
+  **Position:** 2nd argument (or 1st if initial_program omitted)
+  
+  **Description:** Path to the evaluation file that must define an `evaluate` function to score generated programs.
+  
+  **Example:**
+  ```bash
+  skydiscover-run evaluator.py  # No initial program
+  ```
+</ResponseField>
+
+### Configuration Flags
+
+<ResponseField name="--config" type="string">
+  **Alias:** `-c`
+  
+  **Default:** `None`
+  
+  **Description:** Path to YAML configuration file. Defines search parameters, LLM settings, and algorithm configuration.
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --config experiments/config.yaml
+  ```
+  
+  **See also:** [Configuration](/config/overview)
+</ResponseField>
+
+<ResponseField name="--output" type="string">
+  **Alias:** `-o`
+  
+  **Default:** Auto-generated based on search algorithm and timestamp
+  
+  **Description:** Directory path for storing results, checkpoints, programs, and logs.
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --output ./results/exp_001
+  ```
+  
+  **Output structure:**
+  ```
+  results/exp_001/
+  ├── checkpoints/
+  ├── programs/
+  ├── best_program.py
+  └── metadata.json
+  ```
+</ResponseField>
+
+### Search Parameters
+
+<ResponseField name="--iterations" type="integer">
+  **Alias:** `-i`
+  
+  **Default:** From config file, or 100 if not specified
+  
+  **Description:** Maximum number of search iterations to execute. Overrides config file value.
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --iterations 1000
+  ```
+  
+  **Note:** Each iteration may generate multiple candidate programs depending on the search algorithm.
+</ResponseField>
+
+<ResponseField name="--search" type="string">
+  **Alias:** `-s`
+  
+  **Default:** From config file, or `evox` if not specified
+  
+  **Description:** Search algorithm to use for evolutionary discovery.
+  
+  **Choices:**
+  
+  <Tabs>
+    <Tab title="Built-in Algorithms">
+      - `evox` - Default evolutionary search with configurable operators
+      - `adaevolve` - Adaptive evolutionary algorithm that adjusts strategy
+      - `best_of_n` - Simple best-of-N sampling without evolution
+      - `beam_search` - Maintains top-K programs and expands them
+      - `topk` - Top-K selection strategy
+    </Tab>
+    
+    <Tab title="External Backends">
+      - `openevolve` - OpenEvolve integration (requires `pip install openevolve`)
+      - `openevolve_native` - Native OpenEvolve implementation
+      - `shinkaevolve` - Shinka evolutionary search
+      - `gepa` - GEPA algorithm (requires `pip install gepa[full]`)
+      - `gepa_native` - Native GEPA implementation
+    </Tab>
+  </Tabs>
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py --search beam_search
+  ```
+</ResponseField>
+
+### LLM Configuration
+
+<ResponseField name="--model" type="string">
+  **Alias:** `-m`
+  
+  **Default:** From config file, or `gpt-5` if not specified
+  
+  **Description:** LLM model(s) for solution generation. Supports single model or comma-separated list for multi-model ensemble with automatic load balancing.
+  
+  **Format:**
+  - Simple: `model-name`
+  - With provider: `provider/model-name`
+  - Multiple: `model1,model2,model3`
+  
+  **Examples:**
+  ```bash
+  # Single model
+  skydiscover-run program.py eval.py --model gpt-5
+  
+  # With provider prefix
+  skydiscover-run program.py eval.py --model anthropic/claude-5-sonnet
+  
+  # Multiple models (load balanced by weight)
+  skydiscover-run program.py eval.py --model "gpt-5,gemini/gemini-3-pro,anthropic/claude-5-sonnet"
+  ```
+  
+  **Supported providers:**
+  - `openai` (default)
+  - `anthropic`
+  - `gemini` / `google`
+  - Custom via `--api-base`
+</ResponseField>
+
+<ResponseField name="--api-base" type="string">
+  **Default:** Provider-specific default (e.g., `https://api.openai.com/v1`)
+  
+  **Description:** Base URL for LLM API requests. Used for local models, custom endpoints, or alternative providers.
+  
+  **Examples:**
+  ```bash
+  # Local LLM server
+  skydiscover-run program.py eval.py --api-base http://localhost:8000/v1
+  
+  # Custom OpenAI-compatible endpoint
+  skydiscover-run program.py eval.py --api-base https://my-proxy.com/v1
+  
+  # vLLM deployment
+  skydiscover-run program.py eval.py \
+    --api-base http://vllm-server:8000/v1 \
+    --model local/llama-5-70b
+  ```
+</ResponseField>
+
+### Advanced Options
+
+<ResponseField name="--agentic" type="boolean">
+  **Default:** `false`
+  
+  **Description:** Enable agentic mode for multi-file codebase editing. The LLM can read and modify multiple files in the codebase directory.
+  
+  **Behavior:**
+  - Codebase root automatically set to `dirname(initial_program)`
+  - LLM receives file system context
+  - Mutations can span multiple files
+  - Best for complex refactoring tasks
+  
+  **Example:**
+  ```bash
+  skydiscover-run src/algorithm.py eval.py --agentic
+  ```
+  
+  **Output:**
+  ```
+  Agentic mode enabled (codebase: /path/to/src)
+  ```
+  
+  <Warning>
+    Agentic mode requires more tokens per LLM call and may be slower. Use for tasks that genuinely need multi-file context.
+  </Warning>
+</ResponseField>
+
+<ResponseField name="--checkpoint" type="string">
+  **Default:** `None`
+  
+  **Description:** Path to checkpoint directory to resume from. Loads saved state including all programs, metrics, and search progress.
+  
+  **Example:**
+  ```bash
+  skydiscover-run program.py eval.py \
+    --checkpoint ./results/exp_1/checkpoints/checkpoint_250 \
+    --iterations 500
+  ```
+  
+  **Output:**
+  ```
+  Loading checkpoint from ./results/exp_1/checkpoints/checkpoint_250
+  Checkpoint loaded (iteration 250)
+  ```
+  
+  **Notes:**
+  - The `--iterations` flag specifies total iterations, not additional iterations
+  - Checkpoint must be from the same search algorithm
+  - Evaluation function must be compatible
+</ResponseField>
+
+### Logging
+
+<ResponseField name="--log-level" type="string">
+  **Alias:** `-l`
+  
+  **Default:** `WARNING`
+  
+  **Description:** Logging verbosity level for console output.
+  
+  **Choices:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+  
+  **Examples:**
+  ```bash
+  # Debug mode - very verbose
+  skydiscover-run program.py eval.py --log-level DEBUG
+  
+  # Info mode - progress updates
+  skydiscover-run program.py eval.py --log-level INFO
+  
+  # Only errors
+  skydiscover-run program.py eval.py --log-level ERROR
+  ```
+  
+  **Output samples:**
+  
+  <CodeGroup>
+    ```bash DEBUG
+    DEBUG:skydiscover.runner:Initializing runner with config
+    DEBUG:skydiscover.search:Creating population with size 50
+    DEBUG:skydiscover.llm:Calling gpt-5 with 2341 tokens
+    INFO:skydiscover.search:Iteration 1/100: best_score=0.42
+    ```
+    
+    ```bash INFO
+    INFO:skydiscover.search:Iteration 1/100: best_score=0.42
+    INFO:skydiscover.search:Iteration 2/100: best_score=0.45 (improved!)
+    INFO:skydiscover.checkpoint:Saved checkpoint_50
+    ```
+    
+    ```bash WARNING
+    WARNING:skydiscover.runner:No improvement in 50 iterations
+    ```
+  </CodeGroup>
+</ResponseField>
+
+---
+
+## skydiscover-viewer Flags
+
+Visualization tool for completed runs.
+
+### Positional Arguments
+
+<ResponseField name="path" type="string" required>
+  **Position:** 1st argument
+  
+  **Description:** Path to output directory, checkpoint directory, or any directory containing program JSON files.
+  
+  **Auto-detection order:**
+  1. Direct checkpoint dir (`metadata.json` + `programs/`)
+  2. Programs subdirectory with JSON files
+  3. Latest `checkpoint_N` in directory
+  4. Latest in `checkpoints/` subdirectory
+  5. Latest in `<subdir>/checkpoints/` (e.g., `island/checkpoints/`)
+  6. Flat directory with `*.json` files
+  
+  **Examples:**
+  ```bash
+  # Output directory
+  skydiscover-viewer ./results/evox_20260305_143022
+  
+  # Specific checkpoint
+  skydiscover-viewer ./results/exp_1/checkpoints/checkpoint_250
+  
+  # Island run
+  skydiscover-viewer ./results/island_experiment
+  
+  # Flat directory
+  skydiscover-viewer ./exported_programs
+  ```
+</ResponseField>
+
+### Server Options
+
+<ResponseField name="--port" type="integer">
+  **Default:** `8765`
+  
+  **Description:** TCP port for the web dashboard server.
+  
+  **Example:**
+  ```bash
+  skydiscover-viewer ./results/exp_1 --port 9000
+  ```
+  
+  **Access:** `http://localhost:9000/`
+</ResponseField>
+
+<ResponseField name="--host" type="string">
+  **Default:** `127.0.0.1`
+  
+  **Description:** Host address to bind the server. Use `0.0.0.0` for external access.
+  
+  **Examples:**
+  ```bash
+  # Local only (default)
+  skydiscover-viewer ./results/exp_1 --host 127.0.0.1
+  
+  # Allow external connections
+  skydiscover-viewer ./results/exp_1 --host 0.0.0.0 --port 8765
+  ```
+  
+  <Warning>
+    Using `--host 0.0.0.0` exposes the dashboard to your network. Use SSH tunneling for secure remote access:
+    ```bash
+    ssh -L 8765:localhost:8765 user@remote-server
+    ```
+  </Warning>
+</ResponseField>
+
+### Summary Generation
+
+<ResponseField name="--summary-model" type="string">
+  **Default:** `gpt-5-mini` if `OPENAI_API_KEY` is set, otherwise disabled
+  
+  **Description:** LLM model for generating per-program summaries and global run analysis. Requires `OPENAI_API_KEY` environment variable.
+  
+  **Examples:**
+  ```bash
+  # Use default model
+  export OPENAI_API_KEY=sk-...
+  skydiscover-viewer ./results/exp_1
+  
+  # Use specific model
+  skydiscover-viewer ./results/exp_1 --summary-model gpt-5
+  
+  # Disable summaries
+  skydiscover-viewer ./results/exp_1 --summary-model ""
+  ```
+  
+  **Summary features:**
+  - Per-program: algorithmic changes, innovation description
+  - Global: search trajectory, breakthrough moments, patterns
+  - On-demand: generated when viewing program details
+</ResponseField>
+
+---
+
+## Environment Variables
+
+Environment variables that affect CLI behavior:
+
+<ResponseField name="OPENAI_API_KEY" type="string">
+  **Required for:** OpenAI models, viewer summaries
+  
+  **Description:** API key for OpenAI services.
+  
+  **Example:**
+  ```bash
+  export OPENAI_API_KEY=sk-proj-...
+  skydiscover-run program.py eval.py
+  ```
+</ResponseField>
+
+<ResponseField name="ANTHROPIC_API_KEY" type="string">
+  **Required for:** Anthropic models
+  
+  **Description:** API key for Anthropic Claude models.
+  
+  **Example:**
+  ```bash
+  export ANTHROPIC_API_KEY=sk-ant-...
+  skydiscover-run program.py eval.py --model anthropic/claude-5-sonnet
+  ```
+</ResponseField>
+
+<ResponseField name="GOOGLE_API_KEY" type="string">
+  **Required for:** Google Gemini models
+  
+  **Description:** API key for Google Gemini models.
+  
+  **Example:**
+  ```bash
+  export GOOGLE_API_KEY=...
+  skydiscover-run program.py eval.py --model gemini/gemini-3-pro
+  ```
+</ResponseField>
+
+---
+
+## Flag Combinations
+
+### Common Workflows
+
+<AccordionGroup>
+  <Accordion title="Quick Experiment">
+    Minimal flags for rapid testing:
+    ```bash
+    skydiscover-run seed.py eval.py --iterations 50
+    ```
+  </Accordion>
+  
+  <Accordion title="Production Run">
+    Full configuration with checkpointing:
+    ```bash
+    skydiscover-run program.py eval.py \
+      --config production.yaml \
+      --output ./results/prod_$(date +%Y%m%d) \
+      --iterations 5000 \
+      --log-level INFO
+    ```
+  </Accordion>
+  
+  <Accordion title="Multi-Model Ensemble">
+    Load-balanced multiple LLMs:
+    ```bash
+    skydiscover-run program.py eval.py \
+      --model "gpt-5,anthropic/claude-5-sonnet,gemini/gemini-3-pro" \
+      --search beam_search \
+      --iterations 1000
+    ```
+  </Accordion>
+  
+  <Accordion title="Resume and Continue">
+    Resume from checkpoint with more iterations:
+    ```bash
+    skydiscover-run program.py eval.py \
+      --checkpoint ./results/exp_1/checkpoints/checkpoint_500 \
+      --iterations 1000
+    ```
+  </Accordion>
+  
+  <Accordion title="Local Model Testing">
+    Use locally hosted LLM:
+    ```bash
+    skydiscover-run program.py eval.py \
+      --api-base http://localhost:8000/v1 \
+      --model local/llama-5-70b \
+      --iterations 100
+    ```
+  </Accordion>
+  
+  <Accordion title="Agentic Codebase Evolution">
+    Multi-file editing mode:
+    ```bash
+    skydiscover-run src/main.py eval.py \
+      --agentic \
+      --model gpt-5 \
+      --iterations 200 \
+      --log-level INFO
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Flag Priority
+
+When the same parameter is specified in multiple places:
+
+<Steps>
+  <Step title="CLI Flags (Highest Priority)">
+    Command-line arguments override all other sources.
+    ```bash
+    --iterations 500  # Overrides config
+    ```
+  </Step>
+  
+  <Step title="Configuration File">
+    YAML config file values (when `--config` is provided).
+    ```yaml
+    max_iterations: 1000
+    ```
+  </Step>
+  
+  <Step title="Default Values (Lowest Priority)">
+    Hard-coded defaults in the CLI parser.
+  </Step>
+</Steps>
+
+**Example:**
+
+```yaml
+# config.yaml
+max_iterations: 1000
+llm:
+  models:
+    - name: gpt-5
+```
+
+```bash
+# CLI overrides iterations to 500, keeps gpt-5 from config
+skydiscover-run program.py eval.py --config config.yaml --iterations 500
+```
+
+---
+
+## Exit Codes
+
+<ResponseField name="0" type="Success">
+  Discovery completed successfully or viewer stopped gracefully.
+</ResponseField>
+
+<ResponseField name="1" type="Error">
+  Error occurred during execution:
+  - File not found (program or evaluator)
+  - Invalid configuration
+  - Checkpoint not found
+  - Missing required package
+  - Evaluation failure
+  - LLM API error
+</ResponseField>
+
+---
+
+## See Also
+
+<CardGroup cols={3}>
+  <Card title="skydiscover-run" icon="play" href="/cli/skydiscover-run">
+    Detailed run command guide
+  </Card>
+  <Card title="skydiscover-viewer" icon="monitor" href="/cli/skydiscover-viewer">
+    Detailed viewer guide
+  </Card>
+  <Card title="Configuration" icon="gear" href="/config/overview">
+    YAML configuration reference
+  </Card>
+  <Card title="Evaluators" icon="check" href="/concepts/evaluators">
+    Writing evaluation functions
+  </Card>
+  <Card title="Search Algorithms" icon="magnifying-glass" href="/concepts/algorithms">
+    Available search strategies
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started tutorial
+  </Card>
+</CardGroup>

@@ -1,0 +1,347 @@
+---
+title: Monitor Configuration
+description: Configure the live monitoring dashboard for real-time search progress visualization
+icon: chart-line
+---
+
+## Overview
+
+SkyDiscover includes a built-in live monitoring dashboard that provides real-time visualization of the evolutionary search process. The dashboard displays fitness progression, solution quality, and AI-generated summaries.
+
+## Basic Configuration
+
+```yaml
+monitor:
+  enabled: false
+  port: 8765
+  host: "127.0.0.1"
+  max_solution_length: 10000
+```
+
+## Enabling the Monitor
+
+### In Configuration File
+
+```yaml configs/human_in_the_loop.yaml
+monitor:
+  enabled: true
+  port: 8765
+  host: "127.0.0.1"
+```
+
+### From CLI
+
+```bash
+skydiscover-run program.py evaluator.py \
+  -c configs/adaevolve.yaml \
+  --monitor
+```
+
+### Access the Dashboard
+
+Once enabled, open your browser to:
+
+```
+http://127.0.0.1:8765
+```
+
+## MonitorConfig Parameters
+
+Defined in `skydiscover/config.py:500-515`
+
+<ParamField path="enabled" type="bool" default="false">
+  Enable or disable the live monitoring dashboard
+</ParamField>
+
+<ParamField path="port" type="int" default="8765">
+  Port number for the web server
+</ParamField>
+
+<ParamField path="host" type="str" default="127.0.0.1">
+  Host address to bind the server to. Use `0.0.0.0` to allow external access
+</ParamField>
+
+<ParamField path="max_solution_length" type="int" default="10000">
+  Maximum character length to display for solutions in the dashboard
+</ParamField>
+
+## AI Summary Configuration
+
+The monitor can generate AI-powered summaries of search progress using an LLM.
+
+<ParamField path="summary_model" type="str" default="gpt-5-mini">
+  Model to use for generating progress summaries
+</ParamField>
+
+<ParamField path="summary_api_key" type="str" default="None">
+  API key for summary model. Falls back to `OPENAI_API_KEY` if not specified
+</ParamField>
+
+<ParamField path="summary_api_base" type="str" default="https://api.openai.com/v1">
+  API base URL for summary model
+</ParamField>
+
+<ParamField path="summary_top_k" type="int" default="3">
+  Number of top programs to include in the summary
+</ParamField>
+
+<ParamField path="summary_interval" type="int" default="0">
+  Auto-generate summary every N programs. Set to `0` for manual triggering only
+</ParamField>
+
+## Complete Example
+
+```yaml configs/monitor_full.yaml
+monitor:
+  # Server settings
+  enabled: true
+  port: 8765
+  host: "0.0.0.0"  # Allow external access
+  max_solution_length: 15000
+  
+  # AI summary settings
+  summary_model: "gpt-4o-mini"
+  summary_api_key: ${OPENAI_API_KEY}
+  summary_api_base: "https://api.openai.com/v1"
+  summary_top_k: 5
+  summary_interval: 10  # Generate summary every 10 programs
+```
+
+## Dashboard Features
+
+The live monitor provides:
+
+<AccordionGroup>
+  <Accordion title="Real-Time Fitness Plot" icon="chart-line">
+    - Fitness progression over iterations
+    - Best, median, and worst fitness curves
+    - Island-specific plots (for multi-island algorithms)
+    - Interactive zooming and panning
+  </Accordion>
+  
+  <Accordion title="Solution Browser" icon="code">
+    - View all generated solutions
+    - Syntax-highlighted code display
+    - Fitness metrics for each solution
+    - Filtering and sorting capabilities
+  </Accordion>
+  
+  <Accordion title="AI-Generated Summaries" icon="sparkles">
+    - High-level progress overview
+    - Key insights from top solutions
+    - Strategy recommendations
+    - Automatic or manual generation
+  </Accordion>
+  
+  <Accordion title="Search Statistics" icon="chart-bar">
+    - Total iterations completed
+    - Best fitness achieved
+    - Improvement rate
+    - Time per iteration
+    - Model usage breakdown
+  </Accordion>
+</AccordionGroup>
+
+## Human-in-the-Loop Integration
+
+Combine the monitor with human feedback for interactive search:
+
+```yaml configs/human_in_the_loop.yaml
+# Enable both monitor and human feedback
+monitor:
+  enabled: true
+  port: 8765
+
+human_feedback_enabled: true
+human_feedback_file: "feedback.txt"
+human_feedback_mode: "append"
+```
+
+### Providing Feedback
+
+1. View solutions in the dashboard
+2. Write feedback to the feedback file:
+   ```txt feedback.txt
+   The current solutions are too complex. Focus on simpler approaches.
+   Try using dynamic programming instead of recursion.
+   ```
+3. Feedback is incorporated into the next generation
+
+## Network Configuration
+
+### Local Access Only (Default)
+
+```yaml
+monitor:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+```
+
+Access at: `http://127.0.0.1:8765`
+
+### Remote Access
+
+```yaml
+monitor:
+  enabled: true
+  host: "0.0.0.0"  # Listen on all interfaces
+  port: 8765
+```
+
+Access at: `http://<server-ip>:8765`
+
+<Warning>
+  Binding to `0.0.0.0` allows external access. Ensure proper firewall rules are in place.
+</Warning>
+
+### Custom Port
+
+```yaml
+monitor:
+  enabled: true
+  port: 9000
+```
+
+Useful if port 8765 is already in use.
+
+## Performance Considerations
+
+<Tip>
+  The monitor adds minimal overhead to the search process:
+  - WebSocket updates are asynchronous
+  - Solution data is sent in batches
+  - AI summaries only run when triggered
+</Tip>
+
+### Optimizing for Long Runs
+
+```yaml
+monitor:
+  enabled: true
+  max_solution_length: 5000    # Reduce to save memory
+  summary_interval: 50         # Less frequent summaries
+  summary_top_k: 3             # Fewer programs in summary
+```
+
+## AI Summary Models
+
+Choose different models based on your needs:
+
+### Fast & Cheap
+
+```yaml
+monitor:
+  summary_model: "gpt-4o-mini"
+  summary_interval: 5  # More frequent updates
+```
+
+### Detailed Analysis
+
+```yaml
+monitor:
+  summary_model: "gpt-5"
+  summary_interval: 20  # Less frequent, deeper analysis
+  summary_top_k: 10
+```
+
+### Local Model
+
+```yaml
+monitor:
+  summary_model: "ollama/llama3"
+  summary_api_base: "http://localhost:11434/v1"
+  summary_api_key: null
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Port Already in Use" icon="exclamation-triangle">
+    **Error:** `Address already in use`
+    
+    **Solution:** Change the port number
+    ```yaml
+    monitor:
+      port: 9000  # Use different port
+    ```
+  </Accordion>
+  
+  <Accordion title="Cannot Connect from Browser" icon="network-wired">
+    **Issue:** Dashboard not loading
+    
+    **Checklist:**
+    1. Verify monitor is enabled: `enabled: true`
+    2. Check the console for server startup message
+    3. Ensure firewall allows connections to the port
+    4. Try `host: "0.0.0.0"` instead of `127.0.0.1`
+  </Accordion>
+  
+  <Accordion title="AI Summary Not Generating" icon="robot">
+    **Issue:** Summaries not appearing
+    
+    **Solutions:**
+    1. Check API key is set: `summary_api_key` or `OPENAI_API_KEY`
+    2. Verify model name is correct
+    3. Check API base URL
+    4. Set `summary_interval > 0` for automatic generation
+    5. Use manual trigger button in dashboard
+  </Accordion>
+  
+  <Accordion title="High Memory Usage" icon="memory">
+    **Issue:** Dashboard consuming too much memory
+    
+    **Solutions:**
+    1. Reduce `max_solution_length` to 3000-5000
+    2. Increase `summary_interval` to generate summaries less often
+    3. Clear old solutions from the dashboard periodically
+  </Accordion>
+</AccordionGroup>
+
+## Example Configurations
+
+### Minimal Monitoring
+
+```yaml
+monitor:
+  enabled: true
+  # All other defaults
+```
+
+### Production Monitoring
+
+```yaml
+monitor:
+  enabled: true
+  port: 8765
+  host: "0.0.0.0"
+  max_solution_length: 8000
+  summary_model: "gpt-4o-mini"
+  summary_interval: 15
+  summary_top_k: 5
+```
+
+### Research Setup
+
+```yaml
+monitor:
+  enabled: true
+  port: 8765
+  host: "127.0.0.1"
+  max_solution_length: 20000
+  summary_model: "gpt-5"
+  summary_interval: 0  # Manual only
+  summary_top_k: 10
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Overview" icon="gear" href="/config/overview">
+    Learn about other configuration options
+  </Card>
+  
+  <Card title="Human Feedback" icon="user" href="/guides/monitoring">
+    Guide the search with human expertise
+  </Card>
+</CardGroup>
