@@ -1,0 +1,130 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "SkyDiscover",
+  "projectDescription": "A flexible framework for AI-driven scientific and algorithmic discovery using LLM-powered evolutionary algorithms",
+  "theme": "aspen",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/architecture",
+              "concepts/algorithms",
+              "concepts/evaluators",
+              "concepts/evolution-blocks"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/running-discovery",
+              "guides/writing-evaluators",
+              "guides/configuration",
+              "guides/model-providers",
+              "guides/monitoring",
+              "guides/benchmarks"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/math-optimization",
+              "examples/systems-optimization",
+              "examples/algorithm-design",
+              "examples/custom-problems"
+            ]
+          },
+          {
+            "group": "Extending",
+            "pages": [
+              "extending/custom-algorithms",
+              "extending/custom-benchmarks",
+              "extending/context-builders"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Python API",
+            "pages": [
+              "api/run-discovery",
+              "api/discover-solution",
+              "api/runner",
+              "api/discovery-result"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/skydiscover-run",
+              "cli/skydiscover-viewer",
+              "cli/flags"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "config/overview",
+              "config/llm",
+              "config/search",
+              "config/prompt",
+              "config/monitor"
+            ]
+          },
+          {
+            "group": "Search Algorithms",
+            "pages": [
+              "algorithms/adaevolve",
+              "algorithms/evox",
+              "algorithms/topk",
+              "algorithms/beam-search",
+              "algorithms/best-of-n",
+              "algorithms/gepa-native",
+              "algorithms/openevolve-native"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AdaEvolve: Adaptive multi-island evolutionary search with UCB and paradigm breakthroughs",
+    "EvoX: Self-evolving optimization that co-adapts solution generation and experience management",
+    "200+ optimization benchmarks across math, systems, and programming domains",
+    "Unified interface for implementing and comparing discovery algorithms",
+    "Real-time monitoring dashboard with human feedback integration",
+    "Multi-model LLM support with weighted sampling (OpenAI, Gemini, Anthropic, local models)",
+    "Modular architecture with pluggable search algorithms and context builders",
+    "Agentic mode for codebase-aware optimization"
+  ],
+  "publicApiSurface": [
+    "run_discovery(evaluator, initial_program, model, iterations, search, config)",
+    "discover_solution(evaluator, initial_solution, iterations, search, model)",
+    "Runner(initial_program_path, evaluation_file, config, output_dir)",
+    "DiscoveryResult(best_program, best_score, best_solution, metrics, output_dir)",
+    "skydiscover-run [INITIAL_PROGRAM] EVALUATOR --search ALGORITHM --iterations N",
+    "skydiscover-viewer CHECKPOINT_PATH",
+    "ProgramDatabase.add(program, iteration)",
+    "ProgramDatabase.sample(num_context_programs)",
+    "DiscoveryController.run_discovery(start_iteration, max_iterations)"
+  ]
+}
