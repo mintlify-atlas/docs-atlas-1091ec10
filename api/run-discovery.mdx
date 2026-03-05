@@ -64,11 +64,19 @@ The main entry point for running a discovery process. This function accepts file
 <ParamField path="search" type="Optional[str]">
   Search algorithm name. Overrides config file settings.
   
-  Options:
-  - `"topk"` - Top-K sampling
-  - `"adaevolve"` - Adaptive Evolution
-  - `"evox"` - EvoX backend
-  - `"openevolve_native"` - OpenEvolve native
+  Native algorithms:
+  - `"adaevolve"` - Adaptive multi-island evolutionary search
+  - `"evox"` - Self-evolving optimization
+  - `"topk"` - Top-K selection
+  - `"beam_search"` - Beam search with diversity
+  - `"best_of_n"` - Generate N variants per iteration
+  - `"openevolve_native"` - MAP-Elites + island-based search
+  - `"gepa_native"` - Pareto-efficient search with reflective prompting
+  
+  External backends (require `--extra external`):
+  - `"openevolve"` - OpenEvolve backend
+  - `"gepa"` - GEPA backend
+  - `"shinkaevolve"` - ShinkaEvolve backend
   
   Default: `None` (uses config file)
 </ParamField>
